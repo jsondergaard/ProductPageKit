@@ -1,0 +1,105 @@
+generate:
+  - types
+  - client
+accessModifier: package
+namingStrategy: idiomatic
+
+# Apple's document has a thousand paths. Only the operations ProductPageKit
+# calls are generated; transitive schemas come with them. A new operation is
+# added here in the same commit as the code that calls it.
+filter:
+  operations:
+    # Apps and versions
+    - apps_getCollection
+    - apps_updateInstance
+    - apps_appInfos_getToManyRelated
+    - apps_appStoreVersions_getToManyRelated
+    - appStoreVersions_updateInstance
+
+    # Text metadata
+    - appInfos_appInfoLocalizations_getToManyRelated
+    - appInfoLocalizations_createInstance
+    - appInfoLocalizations_updateInstance
+    - appStoreVersions_appStoreVersionLocalizations_getToManyRelated
+    - appStoreVersionLocalizations_createInstance
+    - appStoreVersionLocalizations_updateInstance
+    - appStoreVersions_appStoreReviewDetail_getToOneRelated
+    - appStoreReviewDetails_createInstance
+    - appStoreReviewDetails_updateInstance
+
+    # Screenshots
+    - appStoreVersionLocalizations_appScreenshotSets_getToManyRelated
+    - appScreenshotSets_createInstance
+    - appScreenshotSets_appScreenshots_getToManyRelated
+    - appScreenshotSets_appScreenshots_replaceToManyRelationship
+    - appScreenshots_createInstance
+    - appScreenshots_updateInstance
+    - appScreenshots_deleteInstance
+
+    # Header and search videos
+    - apps_assetLibrary_getToOneRelated
+    - appAssetLibraries_videos_getToManyRelated
+    - appAssetLibraryVideos_createInstance
+    - appAssetLibraryVideos_updateInstance
+    - appAssetLibraryVideos_getInstance
+    - appStoreVersionLocalizations_placements_getToManyRelated
+    - appAssetLibraryPlacements_createInstance
+    - appAssetLibraryPlacements_deleteInstance
+
+    # Subscriptions
+    - apps_subscriptionGroups_getToManyRelated
+    - subscriptionGroups_createInstance
+    - subscriptionGroups_subscriptionGroupLocalizations_getToManyRelated
+    - subscriptionGroupLocalizations_createInstance
+    - subscriptionGroupLocalizations_updateInstance
+    - subscriptionGroups_subscriptions_getToManyRelated
+    - subscriptions_createInstance
+    - subscriptions_updateInstance
+    - subscriptions_subscriptionLocalizations_getToManyRelated
+    - subscriptionLocalizations_createInstance
+    - subscriptionLocalizations_updateInstance
+    - subscriptions_planAvailabilities_getToManyRelated
+    - subscriptionPlanAvailabilities_createInstance
+    - territories_getCollection
+    - subscriptions_pricePoints_getToManyRelated
+    - subscriptionPricePoints_equalizations_getToManyRelated
+    - subscriptions_prices_getToManyRelated
+    - subscriptionPrices_createInstance
+    - subscriptions_appStoreReviewScreenshot_getToOneRelated
+    - subscriptionAppStoreReviewScreenshots_createInstance
+    - subscriptionAppStoreReviewScreenshots_updateInstance
+    - subscriptionAppStoreReviewScreenshots_deleteInstance
+
+    # Custom product pages
+    - apps_appCustomProductPages_getToManyRelated
+    - appCustomProductPages_createInstance
+    - appCustomProductPages_updateInstance
+    - appCustomProductPages_appCustomProductPageVersions_getToManyRelated
+    - appCustomProductPageVersions_createInstance
+    - appCustomProductPageVersions_appCustomProductPageLocalizations_getToManyRelated
+    - appCustomProductPageLocalizations_createInstance
+    - appCustomProductPageLocalizations_updateInstance
+    - appCustomProductPageLocalizations_appScreenshotSets_getToManyRelated
+    - appCustomProductPageLocalizations_searchKeywords_getToManyRelationship
+    - appCustomProductPageLocalizations_searchKeywords_createToManyRelationship
+    - appCustomProductPageLocalizations_searchKeywords_deleteToManyRelationship
+    - apps_searchKeywords_getToManyRelated
+
+    # In-app purchases
+    - apps_inAppPurchasesV2_getToManyRelated
+    - inAppPurchasesV2_createInstance
+    - inAppPurchasesV2_updateInstance
+    - inAppPurchasesV2_inAppPurchaseLocalizations_getToManyRelated
+    - inAppPurchaseLocalizations_createInstance
+    - inAppPurchaseLocalizations_updateInstance
+    - inAppPurchasesV2_inAppPurchaseAvailability_getToOneRelated
+    - inAppPurchaseAvailabilities_createInstance
+    - inAppPurchasesV2_pricePoints_getToManyRelated
+    - inAppPurchasesV2_iapPriceSchedule_getToOneRelated
+    - inAppPurchasePriceSchedules_baseTerritory_getToOneRelated
+    - inAppPurchasePriceSchedules_manualPrices_getToManyRelated
+    - inAppPurchasePriceSchedules_createInstance
+    - inAppPurchasesV2_appStoreReviewScreenshot_getToOneRelated
+    - inAppPurchaseAppStoreReviewScreenshots_createInstance
+    - inAppPurchaseAppStoreReviewScreenshots_updateInstance
+    - inAppPurchaseAppStoreReviewScreenshots_deleteInstance

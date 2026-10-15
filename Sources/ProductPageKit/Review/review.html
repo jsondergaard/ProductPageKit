@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Product page review</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f5f5f7;
+  --card: #ffffff;
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --line: #e3e3e8;
+  --accent: #0071e3;
+  --accent-text: #ffffff;
+  --good: #1e8e3e;
+  --warn: #b25e00;
+  --bad: #d70015;
+  --added: rgba(30, 142, 62, 0.16);
+  --removed: rgba(215, 0, 21, 0.14);
+  --tag: #eef0f4;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111113;
+    --card: #1c1c1e;
+    --text: #f5f5f7;
+    --muted: #98989d;
+    --line: #2c2c2e;
+    --accent: #2997ff;
+    --good: #32d74b;
+    --warn: #ffb340;
+    --bad: #ff6961;
+    --added: rgba(50, 215, 75, 0.2);
+    --removed: rgba(255, 105, 97, 0.2);
+    --tag: #2c2c2e;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+}
+header {
+  position: sticky; top: 0; z-index: 2;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--line);
+}
+.bar { max-width: 880px; margin: 0 auto; padding: 14px 20px 10px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.bar h1 { font-size: 17px; margin: 0; font-weight: 600; }
+.bar .file { color: var(--muted); font-size: 13px; }
+.bar .spacer { flex: 1; }
+button {
+  font: inherit; font-size: 13px; border-radius: 980px; border: 1px solid var(--line);
+  background: var(--card); color: var(--text); padding: 5px 12px; cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+button:disabled { opacity: 0.5; cursor: default; }
+.status { font-size: 13px; }
+.status.ok { color: var(--good); }
+.status.bad { color: var(--bad); }
+.locales { max-width: 880px; margin: 0 auto; padding: 0 20px 12px; display: flex; gap: 6px; flex-wrap: wrap; }
+.locale { border-radius: 980px; padding: 4px 11px; font-size: 13px; background: var(--tag); border: 1px solid transparent; cursor: pointer; color: var(--text); }
+.locale.current { background: var(--accent); color: var(--accent-text); }
+.locale .count { margin-left: 6px; font-variant-numeric: tabular-nums; opacity: 0.8; }
+main { max-width: 880px; margin: 0 auto; padding: 20px; display: grid; gap: 18px; }
+/* A grid item is as wide as its content by default; the screenshot strip scrolls instead. */
+main > * { min-width: 0; }
+.problems { background: var(--card); border-radius: 14px; padding: 12px 18px; border: 1px solid var(--line); }
+.problems summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.problems li { font-size: 13px; margin: 4px 0; }
+.problems li.error { color: var(--bad); }
+section.card { background: var(--card); border-radius: 18px; padding: 22px 24px; border: 1px solid var(--line); }
+section.card > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 14px; font-weight: 600; }
+.field + .field { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
+.meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.meta .title { font-weight: 600; color: var(--text); font-size: 13px; }
+.meta .counter { font-variant-numeric: tabular-nums; }
+.meta .counter.over { color: var(--bad); font-weight: 600; }
+.tag { border-radius: 6px; padding: 1px 7px; background: var(--tag); font-size: 12px; }
+.tag.state-needs_review, .tag.state-new { color: var(--warn); }
+.tag.toggle { cursor: pointer; }
+.tag.toggle.on { outline: 1px solid var(--muted); }
+.meta .actions { margin-left: auto; display: flex; gap: 6px; }
+.value { white-space: pre-wrap; cursor: text; border-radius: 8px; padding: 4px 6px; margin: 0 -6px; }
+.value:hover { background: var(--tag); }
+.value.empty { color: var(--muted); font-style: italic; }
+.value.name { font-size: 26px; font-weight: 700; line-height: 1.2; }
+.value.subtitle { font-size: 17px; color: var(--muted); }
+.value.keywords { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { background: var(--tag); border-radius: 6px; padding: 2px 8px; font-size: 13px; }
+.guidance { font-size: 13px; color: var(--muted); margin: -2px 0 8px; white-space: pre-wrap; }
+.reference { margin-top: 8px; font-size: 13px; color: var(--muted); white-space: pre-wrap; border-left: 3px solid var(--line); padding-left: 10px; }
+.reference b { font-weight: 600; }
+.diff { margin-top: 8px; font-size: 13px; white-space: pre-wrap; background: var(--bg); border-radius: 10px; padding: 10px 12px; }
+.diff .label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+ins { background: var(--added); text-decoration: none; border-radius: 3px; }
+del { background: var(--removed); border-radius: 3px; }
+textarea {
+  width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--accent);
+  border-radius: 10px; padding: 8px 10px; resize: vertical; min-height: 44px;
+}
+.editor-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+.releases { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.note { font-size: 13px; color: var(--muted); }
+.error-banner { color: var(--bad); font-size: 13px; }
+.icon { width: 34px; height: 34px; border-radius: 8px; box-shadow: 0 0 0 1px var(--line); }
+.segmented { display: inline-flex; background: var(--tag); border-radius: 980px; padding: 2px; gap: 2px; }
+.segmented button { border: none; background: transparent; padding: 4px 12px; }
+.segmented button.on { background: var(--card); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.media-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.strip { display: flex; gap: 12px; overflow-x: auto; padding: 4px 2px 10px; scroll-snap-type: x proximity; }
+.shot { flex: none; margin: 0; scroll-snap-align: start; cursor: pointer; text-align: center; }
+.shot img { display: block; border-radius: 12px; background: var(--tag); box-shadow: 0 0 0 1px var(--line); }
+.shot.selected img { box-shadow: 0 0 0 3px var(--accent); }
+.shot figcaption { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cell), 1fr)); gap: 14px; }
+.grid img { width: 100%; height: auto; }
+.video { width: 100%; border-radius: 12px; display: block; background: #000; }
+.placeholder { border-radius: 12px; background: var(--tag); display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 13px; text-align: center; padding: 20px; }
+.captions { margin-top: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <img class="icon" id="icon" alt="" hidden>
+    <h1 id="app">Product page</h1>
+    <span class="file" id="file"></span>
+    <span class="spacer"></span>
+    <span class="status" id="status"></span>
+    <button id="guidance">Show guidance</button>
+    <button id="live">Compare with App Store</button>
+  </div>
+  <div class="locales" id="locales"></div>
+</header>
+<main id="main"><p class="note">Loading…</p></main>
+
+<script>
+const state = { data: null, locale: null, release: null, live: null, loadingLive: false, open: new Set(), editing: null, error: null,
+                platform: null, position: 0, everyLocale: false };
+// Kept across renders, so a playing video does not restart on every edit.
+const videoNodes = new Map();
+
+const listing = ["name", "subtitle", "promotionalText", "description", "keywords"];
+const review = ["reviewNotes", "productReviewNote"];
+
+async function api(path, options = {}) {
+  const response = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || response.statusText);
+  return body;
+}
+
+async function load() {
+  state.data = await api("/api/state");
+  if (!state.locale) state.locale = state.data.sourceLanguage;
+  const releases = releaseKeys();
+  if (!state.release || !releases.includes(state.release)) state.release = releases[0] || null;
+  const platforms = state.data.platforms.map(p => p.id);
+  if (!platforms.includes(state.platform)) state.platform = platforms[0] || null;
+  render();
+}
+
+function releaseKeys() {
+  return state.data.fields.map(f => f.key).filter(k => k.startsWith("whatsNew."));
+}
+
+function field(key) { return state.data.fields.find(f => f.key === key); }
+function unit(key, language) { return (state.data.values[key] || {})[language]; }
+function languageFor(key) { return field(key).translatable ? state.locale : state.data.sourceLanguage; }
+
+function pending(language) {
+  if (language === state.data.sourceLanguage) return 0;
+  return state.data.fields.filter(f => f.translatable && (unit(f.key, state.data.sourceLanguage) || {}).value).filter(f => {
+    const u = unit(f.key, language);
+    return !u || !u.value || u.state !== "translated";
+  }).length;
+}
+
+function el(tag, attributes = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [name, value] of Object.entries(attributes)) {
+    if (name === "class") node.className = value;
+    else if (name.startsWith("on")) node.addEventListener(name.slice(2), value);
+    else if (value !== false && value != null) node.setAttribute(name, value);
+  }
+  for (const child of children.flat()) if (child != null) node.append(child);
+  return node;
+}
+
+// Word-level differences, so a one-word edit in a long description reads at a glance.
+function diff(before, after) {
+  const a = before.split(/(\s+)/), b = after.split(/(\s+)/);
+  const table = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--)
+    for (let j = b.length - 1; j >= 0; j--)
+      table[i][j] = a[i] === b[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
+  const out = [];
+  let i = 0, j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { out.push(a[i]); i++; j++; }
+    else if (table[i + 1][j] >= table[i][j + 1]) out.push(el("del", {}, a[i++]));
+    else out.push(el("ins", {}, b[j++]));
+  }
+  while (i < a.length) out.push(el("del", {}, a[i++]));
+  while (j < b.length) out.push(el("ins", {}, b[j++]));
+  return out;
+}
+
+function renderField(key, options = {}) {
+  const info = field(key);
+  if (!info) return null;
+  const language = languageFor(key);
+  const current = unit(key, language);
+  const value = current ? current.value : "";
+  const committed = (state.data.committed[key] || {})[language];
+  const live = state.live ? (state.live[key] || {})[language] : undefined;
+  const id = `${key}/${language}`;
+  const node = el("div", { class: "field" });
+
+  const meta = el("div", { class: "meta" },
+    el("span", { class: "title" }, options.title || info.title),
+    el("span", { class: "counter" + (info.maxLength != null && value.length > info.maxLength ? " over" : "") }, count(value, info.maxLength)));
+  if (language !== state.data.sourceLanguage && current) {
+    meta.append(el("span", { class: `tag state-${current.state}` }, current.state.replace("_", " ")));
+  }
+  if (!info.translatable && state.locale !== state.data.sourceLanguage) {
+    meta.append(el("span", { class: "tag" }, `${state.data.sourceLanguage} only, the same in every locale`));
+  }
+  const changedSinceCommit = state.data.committed[key] !== undefined && committed !== value && !(committed === undefined && value === "");
+  if (changedSinceCommit) {
+    meta.append(el("span", { class: "tag toggle" + (state.open.has("commit:" + id) ? " on" : ""), onclick: () => toggle("commit:" + id) }, "changed since commit"));
+  }
+  if (state.live && live !== undefined && live !== value) {
+    meta.append(el("span", { class: "tag toggle" + (state.open.has("live:" + id) ? " on" : ""), onclick: () => toggle("live:" + id) }, "differs from App Store"));
+  }
+  const actions = el("span", { class: "actions" });
+  if (current && current.value && current.state !== "translated" && language !== state.data.sourceLanguage) {
+    actions.append(el("button", { onclick: () => approve(key, language) }, "Approve"));
+  }
+  meta.append(actions);
+  node.append(meta);
+  if (info.comment && state.open.has("guidance")) node.append(el("div", { class: "guidance" }, info.comment));
+
+  if (state.editing === id) {
+    node.append(editor(key, language, value, info.maxLength));
+  } else {
+    node.append(display(key, value, () => { state.editing = id; render(); }));
+  }
+
+  if (info.translatable && language !== state.data.sourceLanguage) {
+    const source = unit(key, state.data.sourceLanguage);
+    if (source && source.value) node.append(el("div", { class: "reference" }, el("b", {}, state.data.sourceLanguage + "  "), source.value));
+  }
+  if (state.open.has("commit:" + id)) {
+    node.append(el("div", { class: "diff" }, el("span", { class: "label" }, "Since the last commit"), diff(committed || "", value)));
+  }
+  if (state.open.has("live:" + id)) {
+    node.append(el("div", { class: "diff" }, el("span", { class: "label" }, "App Store now, against the catalog"), diff(live || "", value)));
+  }
+  return node;
+}
+
+function display(key, value, edit) {
+  if (!value) return el("div", { class: "value empty", onclick: edit }, "Empty. Click to write it.");
+  if (key === "keywords") {
+    return el("div", { class: "value keywords", onclick: edit },
+      value.split(",").map(k => k.trim()).filter(Boolean).map(k => el("span", { class: "chip" }, k)));
+  }
+  return el("div", { class: `value ${key}`, onclick: edit }, value);
+}
+
+function count(value, maxLength) {
+  return maxLength == null ? `${value.length}` : `${value.length} / ${maxLength}`;
+}
+
+function editor(key, language, value, maxLength) {
+  const area = el("textarea", { rows: Math.max(2, Math.min(18, value.split("\n").length + 1)) });
+  area.value = value;
+  const counter = el("span", {}, count(value, maxLength));
+  area.addEventListener("input", () => {
+    counter.textContent = count(area.value, maxLength);
+    counter.style.color = maxLength != null && area.value.length > maxLength ? "var(--bad)" : "";
+  });
+  const cancel = () => { state.editing = null; render(); };
+  const save = async () => {
+    try {
+      state.data = await api("/api/value", { method: "PUT", body: JSON.stringify({ key, language, value: area.value }) });
+      state.editing = null;
+      state.error = null;
+    } catch (error) { state.error = error.message; }
+    render();
+  };
+  area.addEventListener("keydown", event => {
+    if (event.key === "Escape") cancel();
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) save();
+  });
+  setTimeout(() => area.focus(), 0);
+  return el("div", {}, area, el("div", { class: "editor-actions" }, counter, el("span", { class: "spacer" }),
+    el("button", { onclick: cancel }, "Cancel"), el("button", { class: "primary", onclick: save }, "Save")));
+}
+
+function toggle(name) {
+  state.open.has(name) ? state.open.delete(name) : state.open.add(name);
+  render();
+}
+
+async function approve(key, language) {
+  try { state.data = await api("/api/approve", { method: "POST", body: JSON.stringify({ key, language }) }); state.error = null; }
+  catch (error) { state.error = error.message; }
+  render();
+}
+
+async function compareLive() {
+  if (state.live) { state.live = null; render(); return; }
+  state.loadingLive = true; render();
+  try { state.live = await api("/api/live"); state.error = null; }
+  catch (error) { state.error = `App Store Connect: ${error.message}`; }
+  state.loadingLive = false; render();
+}
+
+// A caption's lines, each titled by the line alone.
+function captionFields(prefix) {
+  return el("div", { class: "captions" }, ["kicker", "headline", "subline"].map(line =>
+    renderField(`${prefix}.${line}`, { title: line[0].toUpperCase() + line.slice(1) })));
+}
+
+function videoCard(kind, heading) {
+  const videos = state.data.videos.filter(v => v.kind === kind);
+  if (!videos.length) return null;
+  const video = videos.find(v => v.locale === state.locale);
+  const card = el("section", { class: "card" }, el("h2", {}, heading));
+  if (video.url) {
+    if (!videoNodes.has(video.url)) {
+      const node = el("video", { class: "video", src: video.url, autoplay: "", muted: "", loop: "", playsinline: "" });
+      node.muted = true;
+      videoNodes.set(video.url, node);
+    }
+    card.append(videoNodes.get(video.url));
+    if (!video.current) card.append(el("p", { class: "note" }, "Out of date: its caption or captures changed. Run `productpage videos render`."));
+  } else {
+    card.append(el("div", { class: "placeholder", style: `aspect-ratio: ${video.width} / ${video.height}` },
+      "Not rendered yet. Run `productpage videos render`."));
+  }
+  card.append(captionFields(video.caption));
+  return card;
+}
+
+function screenshotsCard() {
+  const data = state.data;
+  if (!data.platforms.length) return null;
+  const platform = data.platforms.find(p => p.id === state.platform);
+  const card = el("section", { class: "card" }, el("h2", {}, "Screenshots"));
+  const bar = el("div", { class: "media-bar" });
+  if (data.platforms.length > 1) {
+    bar.append(el("span", { class: "segmented" }, data.platforms.map(p =>
+      el("button", { class: p.id === state.platform ? "on" : "", onclick: () => { state.platform = p.id; state.position = 0; state.editing = null; render(); } }, p.name))));
+  }
+  if (data.locales.length > 1) {
+    bar.append(el("span", { class: "segmented" },
+      el("button", { class: state.everyLocale ? "" : "on", onclick: () => { state.everyLocale = false; render(); } }, "This locale"),
+      el("button", { class: state.everyLocale ? "on" : "", onclick: () => { state.everyLocale = true; render(); } }, "Every locale")));
+  }
+  card.append(bar);
+  for (const problem of data.mediaProblems) card.append(el("p", { class: "note" }, problem));
+  const shots = data.screenshots.filter(s => s.platform === platform.id);
+  // At App Store proportions: a phone strip as tall as a phone shows them, a Mac strip as wide.
+  const height = platform.height > platform.width ? 400 : 230;
+  const width = Math.round(height * platform.width / platform.height);
+  if (state.everyLocale) {
+    const grid = el("div", { class: "grid", style: `--cell: ${Math.max(width * 0.8, 150)}px` });
+    for (const locale of data.locales) {
+      const shot = shots.find(s => s.locale === locale.code && s.position === state.position);
+      if (shot) grid.append(el("figure", { class: "shot" }, el("img", { src: shot.url, alt: "" }), el("figcaption", {}, locale.store)));
+    }
+    card.append(el("p", { class: "note" }, `Screenshot ${state.position + 1} in every locale.`), grid);
+  } else {
+    card.append(el("div", { class: "strip" }, shots.filter(s => s.locale === state.locale).sort((a, b) => a.position - b.position).map(shot =>
+      el("figure", { class: "shot" + (shot.position === state.position ? " selected" : ""), onclick: () => { state.position = shot.position; state.editing = null; render(); } },
+        el("img", { src: shot.url, alt: "", width, height }), el("figcaption", {}, `${shot.position + 1}`)))));
+  }
+  if (platform.captions && platform.captions[state.position]) card.append(captionFields(platform.captions[state.position]));
+  return card;
+}
+
+function render() {
+  const data = state.data;
+  document.getElementById("app").textContent = data.app;
+  const icon = document.getElementById("icon");
+  icon.hidden = !data.icon;
+  if (data.icon) icon.src = "/media/icon";
+  document.getElementById("file").textContent = data.catalog;
+  const errors = data.problems.filter(p => p.severity === "error").length;
+  const warnings = data.problems.length - errors;
+  const status = document.getElementById("status");
+  status.className = "status " + (errors ? "bad" : "ok");
+  status.textContent = errors ? `${errors} error${errors === 1 ? "" : "s"}` : "Ready to push";
+  if (warnings) status.textContent += ` · ${warnings} warning${warnings === 1 ? "" : "s"}`;
+  const liveButton = document.getElementById("live");
+  liveButton.textContent = state.loadingLive ? "Reading App Store Connect…" : state.live ? "Hide App Store" : "Compare with App Store";
+  liveButton.disabled = state.loadingLive;
+  document.getElementById("guidance").textContent = state.open.has("guidance") ? "Hide guidance" : "Show guidance";
+
+  const locales = document.getElementById("locales");
+  locales.replaceChildren(...data.locales.map(locale => {
+    const count = pending(locale.code);
+    return el("button", { class: "locale" + (locale.code === state.locale ? " current" : ""), onclick: () => { state.locale = locale.code; state.editing = null; render(); } },
+      locale.store, count ? el("span", { class: "count" }, `${count} to review`) : null);
+  }));
+
+  const main = document.getElementById("main");
+  const cards = [];
+  if (state.error) cards.push(el("p", { class: "error-banner" }, state.error));
+  if (data.problems.length) {
+    cards.push(el("details", { class: "problems", open: errors > 0 },
+      el("summary", {}, "Checks"),
+      el("ul", {}, data.problems.map(p => el("li", { class: p.severity }, p.message)))));
+  }
+  cards.push(videoCard("header", "Product page header"));
+  cards.push(el("section", { class: "card" }, el("h2", {}, "Product page"),
+    ["name", "subtitle", "promotionalText", "description"].map(k => renderField(k))));
+  cards.push(screenshotsCard());
+
+  const releases = releaseKeys();
+  const whatsNew = el("section", { class: "card" }, el("h2", {}, "What's New"));
+  if (releases.length) {
+    whatsNew.append(el("div", { class: "releases" }, releases.map(k =>
+      el("button", { class: k === state.release ? "primary" : "", onclick: () => { state.release = k; state.editing = null; render(); } }, k.slice("whatsNew.".length)))));
+    whatsNew.append(renderField(state.release));
+  } else {
+    whatsNew.append(el("p", { class: "note" }, "No releases yet. Run `productpage release new <version>` to add one."));
+  }
+  cards.push(whatsNew);
+  cards.push(el("section", { class: "card" }, el("h2", {}, "Search"), renderField("keywords")));
+  cards.push(videoCard("search", "Search results"));
+  const reviewFields = review.filter(field).map(k => renderField(k));
+  if (reviewFields.length) cards.push(el("section", { class: "card" }, el("h2", {}, "App Review"), reviewFields));
+  main.replaceChildren(...cards.filter(Boolean));
+}
+
+document.getElementById("live").addEventListener("click", compareLive);
+document.getElementById("guidance").addEventListener("click", () => toggle("guidance"));
+
+// Edits made elsewhere, in Xcode or by an agent, show up within two seconds,
+// except while something is being edited here.
+setInterval(async () => {
+  if (!state.data || state.editing) return;
+  try {
+    const { revision } = await api("/api/revision");
+    if (revision !== state.data.revision) await load();
+  } catch {}
+}, 2000);
+
+load().catch(error => {
+  document.getElementById("main").replaceChildren(el("p", { class: "error-banner" }, error.message));
+});
+</script>
+</body>
+</html>

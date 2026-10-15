@@ -1,0 +1,126 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "Apples": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Æbler"
+          }
+        }
+      }
+    },
+    "Cherries": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kirsebær"
+          }
+        }
+      }
+    },
+    "Every fruit, every day.": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al frugt, hver dag."
+          }
+        }
+      }
+    },
+    "Fruit": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frugt"
+          }
+        }
+      }
+    },
+    "Notifications": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifikationer"
+          }
+        }
+      }
+    },
+    "Pears": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pærer"
+          }
+        }
+      }
+    },
+    "Plums": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blommer"
+          }
+        }
+      }
+    },
+    "Ripe today": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moden i dag"
+          }
+        }
+      }
+    },
+    "Sample Plus": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sample Plus"
+          }
+        }
+      }
+    },
+    "Settings": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indstillinger"
+          }
+        }
+      }
+    },
+    "Subscribe": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abonnér"
+          }
+        }
+      }
+    },
+    "Weekly summary": {
+      "localizations": {
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugentlig oversigt"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

@@ -1,0 +1,304 @@
+import Foundation
+import ProductPageKitCore
+
+/// `simctl`, through its JSON.
+struct Simulators: Sendable {
+    struct Runtime: Decodable, Sendable {
+        let identifier: String
+        let name: String
+        let version: String
+        let platform: String
+        let isAvailable: Bool
+        let supportedDeviceTypes: [DeviceType]
+    }
+
+    struct DeviceType: Decodable, Sendable {
+        let identifier: String
+        let name: String
+        let productFamily: String
+        let bundlePath: String
+    }
+
+    struct Device: Decodable, Sendable {
+        let udid: String
+        let name: String
+        let state: String
+        let isAvailable: Bool
+        let deviceTypeIdentifier: String?
+        let dataPath: String
+
+        var isBooted: Bool { state == "Booted" }
+
+        /// Where the device keeps its system-wide preferences, language and
+        /// region among them.
+        var globalPreferences: URL {
+            URL(filePath: dataPath).appending(path: "Library/Preferences/.GlobalPreferences.plist")
+        }
+    }
+
+    /// Devices the runner made are named with this, so they are never
+    /// mistaken for someone's own.
+    static let prefix = "ProductPageKit"
+
+    func runtimes() async throws -> [Runtime] {
+        struct List: Decodable { let runtimes: [Runtime] }
+        return try JSONDecoder().decode(List.self, from: try await simctl(["list", "runtimes", "-j"])).runtimes
+    }
+
+    /// Every device, with the identifier of the runtime it runs.
+    func devices() async throws -> [(runtime: String, device: Device)] {
+        struct List: Decodable { let devices: [String: [Device]] }
+        let list = try JSONDecoder().decode(List.self, from: try await simctl(["list", "devices", "-j"]))
+        return list.devices.flatMap { runtime, devices in devices.map { (runtime, $0) } }
+    }
+
+    /// Whether the device's type draws a sensor bar, the Dynamic Island.
+    func drawsSensorBar(_ udid: String) async throws -> Bool {
+        struct List: Decodable {
+            struct DeviceType: Decodable { let identifier: String; let bundlePath: String }
+            let devicetypes: [DeviceType]
+        }
+        let identifier = try await device(udid).deviceTypeIdentifier
+        let types = try JSONDecoder().decode(List.self, from: try await simctl(["list", "devicetypes", "-j"])).devicetypes
+        guard let type = types.first(where: { $0.identifier == identifier }),
+              let profile = NSDictionary(contentsOf: URL(filePath: type.bundlePath).appending(path: "Contents/Resources/profile.plist"))
+        else { return false }
+        return profile["sensorBarImage"] != nil
+    }
+
+    func device(_ udid: String) async throws -> Device {
+        guard let device = try await devices().map(\.device).first(where: { $0.udid == udid }) else {
+            throw RunnerError.noDevice(udid)
+        }
+        return device
+    }
+
+    /// The device type and runtime a platform is captured on: the newest
+    /// available runtime for its OS, and in it the named device or the one
+    /// with the most pixels.
+    func resolve(_ device: SimulatorDevice, for kind: Platform.Kind) async throws -> (type: DeviceType, runtime: Runtime) {
+        let (os, family) = Self.family(kind)
+        guard let runtime = try await runtimes()
+            .filter({ $0.platform == os && $0.isAvailable })
+            .max(by: { $0.version.compare($1.version, options: .numeric) == .orderedAscending })
+        else { throw RunnerError.noRuntime(os) }
+        let types = runtime.supportedDeviceTypes.filter { $0.productFamily == family }
+        switch device {
+        case .named(let name):
+            guard let type = types.first(where: { $0.name == name }) else {
+                throw RunnerError.noDeviceType(name, runtime: runtime.name, available: types.map(\.name))
+            }
+            return (type, runtime)
+        case .largest:
+            let sized = types.compactMap { type in Self.pixels(type).map { (type, $0) } }
+            guard let largest = sized.max(by: { ($0.1, $0.0.name) < ($1.1, $1.0.name) }) else {
+                throw RunnerError.noDeviceType("any \(family)", runtime: runtime.name, available: [])
+            }
+            return (largest.0, runtime)
+        }
+    }
+
+    /// The runner's own device of this type and runtime, made and booted once
+    /// so the clones made from it start past first-boot setup.
+    func base(_ type: DeviceType, runtime: Runtime) async throws -> String {
+        let name = "\(Self.prefix) \(type.name) \(runtime.name)"
+        if let existing = try await devices().first(where: { $0.runtime == runtime.identifier && $0.device.name == name }) {
+            if existing.device.state != "Shutdown" { try await shutdown(existing.device.udid) }
+            return existing.device.udid
+        }
+        let udid = String(decoding: try await simctl(["create", name, type.identifier, runtime.identifier]), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        try await boot(udid)
+        try await shutdown(udid)
+        return udid
+    }
+
+    /// A worker's device, cloned from `base` and named for this process so a
+    /// later run can tell an abandoned one from another run's.
+    func clone(_ base: String, worker: Int) async throws -> String {
+        let name = "\(Self.prefix) worker \(getpid())-\(worker)"
+        return String(decoding: try await simctl(["clone", base, name]), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Worker clones whose run ended without deleting them.
+    func abandonedWorkers() async throws -> [Device] {
+        let workerPrefix = "\(Self.prefix) worker "
+        return try await devices().map(\.device).filter { device in
+            guard device.name.hasPrefix(workerPrefix) else { return false }
+            let pid = device.name.dropFirst(workerPrefix.count).split(separator: "-").first.flatMap { Int32($0) }
+            return pid.map { kill($0, 0) != 0 } ?? true
+        }
+    }
+
+    func deleteAbandonedWorkers() async throws {
+        for device in try await abandonedWorkers() { try await delete(device.udid) }
+    }
+
+    /// Returns once the device has finished booting.
+    func boot(_ udid: String) async throws {
+        _ = try await simctl(["bootstatus", udid, "-b"])
+    }
+
+    func shutdown(_ udid: String) async throws {
+        do {
+            _ = try await simctl(["shutdown", udid])
+        } catch let error as ShellError where error.stderr.contains("current state: Shutdown") {
+            return
+        }
+    }
+
+    func delete(_ udid: String) async throws {
+        try await shutdown(udid)
+        _ = try await simctl(["delete", udid])
+    }
+
+    /// The status bar's `time`, full bars and battery, the appearance and the
+    /// text size.
+    func prepare(_ udid: String, time: String, appearance: Appearance, contentSize: ContentSize) async throws {
+        _ = try await simctl([
+            "status_bar", udid, "override", "--time", time,
+            "--dataNetwork", "wifi", "--wifiMode", "active", "--wifiBars", "3",
+            "--cellularMode", "active", "--cellularBars", "4",
+            "--batteryState", "charged", "--batteryLevel", "100",
+        ])
+        _ = try await simctl(["ui", udid, "appearance", appearance.rawValue])
+        _ = try await simctl(["ui", udid, "content_size", contentSize.rawValue])
+    }
+
+    /// Moves a booted device's status bar time to `locale` in place: the
+    /// language and region through the device's own preferences daemon, then
+    /// the bridge that formats the override's time restarted to read them,
+    /// so `prepare` sets it again. A reboot did the same in about 40 seconds,
+    /// most of it the system settling afterwards; this takes three. The date
+    /// beside the time on an iPad is SpringBoard's, which restarted in place
+    /// stops drawing the bar, so that takes a reboot.
+    func switchLocale(_ locale: LocalePreferences, on udid: String) async throws {
+        _ = try await simctl(["spawn", udid, "defaults", "write", "-g", LocalePreferences.languagesKey, "-array"] + locale.languages)
+        _ = try await simctl(["spawn", udid, "defaults", "write", "-g", LocalePreferences.localeKey, locale.locale])
+        _ = try await simctl(["spawn", udid, "launchctl", "kickstart", "-k", "user/\(getuid())/com.apple.CoreSimulator.bridge"])
+    }
+
+    /// The language and region the device booted in, or boots in next.
+    func locale(of device: Device) throws -> LocalePreferences? {
+        LocalePreferences(try Self.preferences(device.globalPreferences))
+    }
+
+    /// Sets the language and region the device boots in. Only while it is
+    /// shut down: on a booted device `cfprefsd` owns the file, and the
+    /// system reads both only at boot.
+    func setLocale(_ locale: LocalePreferences, of device: Device) throws {
+        let file = device.globalPreferences
+        let preferences = locale.applied(to: try Self.preferences(file))
+        try PropertyListSerialization.data(fromPropertyList: preferences, format: .binary, options: 0)
+            .write(to: file, options: .atomic)
+    }
+
+    /// A preferences file's contents. Every device the runner uses has
+    /// booted, and so has the file.
+    private static func preferences(_ file: URL) throws -> [String: Any] {
+        guard let preferences = try PropertyListSerialization.propertyList(from: Data(contentsOf: file), format: nil)
+            as? [String: Any]
+        else { throw RunnerError.unreadablePreferences(file.path) }
+        return preferences
+    }
+
+    func install(_ app: URL, on udid: String) async throws {
+        _ = try await simctl(["install", udid, app.path])
+    }
+
+    /// Launches the app, ending a copy that is still running, and returns its
+    /// pid on the host.
+    func launch(_ bundleID: String, on udid: String, arguments: [String]) async throws -> Int32 {
+        let command = ["launch", "--terminate-running-process", udid, bundleID] + arguments
+        let output = String(decoding: try await launching(command), as: UTF8.self)
+        // "com.example.app: 12345"
+        guard let pid = output.split(separator: ":").last.flatMap({ Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }) else {
+            throw RunnerError.unexpectedOutput("simctl launch", output)
+        }
+        return pid
+    }
+
+    /// Runs `command`, asking again a moment later while the simulator drops
+    /// the launch.
+    private func launching(_ command: [String]) async throws -> Data {
+        for _ in 1..<Self.launchAttempts {
+            do {
+                return try await simctl(command)
+            } catch where Self.isDroppedLaunch(error) {
+                try await Task.sleep(for: .seconds(2))
+            }
+        }
+        return try await simctl(command)
+    }
+
+    /// Straight after an App Review test the simulator drops a launch more
+    /// than once in a row.
+    static let launchAttempts = 4
+
+    /// A launch the simulator dropped: it answered with neither a process
+    /// nor a reason, and nothing is running. Asked again, it starts.
+    static func isDroppedLaunch(_ error: Error) -> Bool {
+        (error as? ShellError)?.stderr.contains("did not return a process handle nor launch error") == true
+    }
+
+    func terminate(_ bundleID: String, on udid: String) async {
+        _ = try? await simctl(["terminate", udid, bundleID])
+    }
+
+    /// A device that draws a sensor bar has its screenshots composed with the
+    /// display's mask, which blacks the corners. Now and then, and for a
+    /// while after the bridge restarts, one comes without the mask and with
+    /// the sensor bar drawn black over the status bar; with `masked`, that
+    /// one is taken again.
+    func screenshot(_ udid: String, masked: Bool) async throws -> Frame {
+        for _ in 0..<Self.compositionAttempts {
+            let frame = try await screenshot(udid)
+            if !masked || frame.isMasked { return frame }
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        throw RunnerError.timedOut("simulator \(udid) to compose a screenshot with its display's mask")
+    }
+
+    /// A quarter of a second apart: a busy machine has taken several seconds.
+    static let compositionAttempts = 80
+
+    /// `simctl io` writes to a file and nowhere else.
+    private func screenshot(_ udid: String) async throws -> Frame {
+        let file = FileManager.default.temporaryDirectory.appending(path: "ProductPageKit-\(udid).png")
+        defer { try? FileManager.default.removeItem(at: file) }
+        _ = try await simctl(["io", udid, "screenshot", "--type=png", file.path])
+        return try Frame(png: try Data(contentsOf: file))
+    }
+
+    private func simctl(_ arguments: [String]) async throws -> Data {
+        try await Shell.run("/usr/bin/xcrun", ["simctl"] + arguments)
+    }
+
+    /// The runtime platform and device family a platform runs in.
+    static func family(_ kind: Platform.Kind) -> (os: String, family: String) {
+        switch kind {
+        case .iPhone: ("iOS", "iPhone")
+        case .iPad: ("iOS", "iPad")
+        case .appleTV: ("tvOS", "Apple TV")
+        case .mac: ("macOS", "Mac")
+        }
+    }
+
+    /// The main screen's size in pixels, from the device type's bundle.
+    static func pixels(_ type: DeviceType) -> Int? {
+        let url = URL(filePath: type.bundlePath).appending(path: "Contents/Resources/capabilities.plist")
+        guard let data = try? Data(contentsOf: url),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let capabilities = plist["capabilities"] as? [String: Any],
+              let screen = capabilities["ScreenDimensionsCapability"] as? [String: Any],
+              let width = number(screen["main-screen-width"]), let height = number(screen["main-screen-height"])
+        else { return nil }
+        return width * height
+    }
+
+    /// Apple writes these as numbers for phones and strings for Apple TV.
+    private static func number(_ value: Any?) -> Int? {
+        (value as? Int) ?? (value as? String).flatMap(Int.init)
+    }
+}
