@@ -58,7 +58,7 @@ struct VideoRenderer {
     /// the source language.
     struct Sources {
         var sources: [Source] = []
-        var problems: [String] = []
+        var problems: [RenderProblem<VideoItem>] = []
         var untranslated: [String] = []
     }
 
@@ -79,10 +79,17 @@ struct VideoRenderer {
         let digests = try await files.digests(for: movies)
         var sources: [Source] = []
         var captions = CaptionReader(copy)
-        var problems: [String] = []
+        var problems: [RenderProblem<VideoItem>] = []
         for asset in theme.assets {
             for locale in locales {
-                guard let caption = captions.caption(.video(asset.kind), locale: locale) else { continue }
+                let item = VideoItem(kind: asset.kind, locale: locale)
+                let caption: Caption
+                switch captions.caption(.video(asset.kind), locale: locale) {
+                case .success(let read): caption = read
+                case .failure(let missing):
+                    problems.append(RenderProblem(missing.description, asset: asset, locale: locale))
+                    continue
+                }
                 var key = RenderKey("video")
                 for part in [asset.kind.rawValue, locale.code, "\(asset.poster)", "\(theme.motion)", "\(asset.devices)"] { key.add(part) }
                 key.add(caption)
@@ -95,7 +102,7 @@ struct VideoRenderer {
                         case .capture(let shot):
                             let url = cache.capture(platform, locale, shot)
                             guard let data = try? Data(contentsOf: url) else {
-                                problems.append("\(asset.kind.title) · \(locale.code): no \(platform.name) capture of \(shot)")
+                                problems.append(RenderProblem("no \(platform.name) capture of \(shot)", asset: asset, locale: locale))
                                 complete = false
                                 return nil
                             }
@@ -110,12 +117,12 @@ struct VideoRenderer {
                 }
                 guard complete else { continue }
                 sources.append(Source(
-                    item: VideoItem(kind: asset.kind, locale: locale),
+                    item: item,
                     video: RenderedVideo(asset: asset, locale: locale, url: cache.videos.appending(path: "\(key.finalize()).mp4")),
                     caption: caption, screens: screens))
             }
         }
-        return Sources(sources: sources, problems: captions.problems + problems, untranslated: captions.untranslated)
+        return Sources(sources: sources, problems: problems, untranslated: captions.untranslated)
     }
 
     func render(locales: [StoreLocale], progress: (String) -> Void) async throws -> Report {
@@ -184,7 +191,7 @@ struct VideoRenderer {
             for (index, device) in devices.enumerated() where device.reach.intersects(bounds) {
                 found.append("device \(index + 1) floats over the caption")
             }
-            problems += found.map { "\(asset.kind.title) · \(locale.code): \($0)" }
+            problems += found.map { RenderProblem($0, asset: asset, locale: locale) }
             jobs.append(Job(video: source.video, stage: stage, devices: devices,
                             caption: CaptionLayer(image: CIImage(cgImage: canvas.image()), bounds: bounds),
                             layout: VideoLayout(caption: bounds, devices: devices.map(\.reach), locale: locale)))
@@ -215,5 +222,13 @@ struct VideoRenderer {
             codes.contains($0.locale) || !configured.contains($0.locale) || !kinds.contains($0.kind)
         }
         return Report(videos: sources.map(\.video), drawn: jobs.count, untranslated: inputs.untranslated)
+    }
+}
+
+extension RenderProblem<VideoItem> {
+    /// `product page header · da: no iPhone 6.9" capture of list`.
+    init(_ reason: String, asset: CreativeAsset, locale: StoreLocale) {
+        self.init(item: VideoItem(kind: asset.kind, locale: locale), reason: reason,
+                  description: "\(asset.kind.title) · \(locale.code): \(reason)")
     }
 }

@@ -15,6 +15,16 @@ extension HTTPServer {
             self.headers = headers
             self.body = body
         }
+
+        /// The path without its query: `/api/screenshots`.
+        package var route: String {
+            String(path.prefix { $0 != "?" })
+        }
+
+        /// A query parameter's value, decoded, or nil when it is absent.
+        package func query(_ name: String) -> String? {
+            URLComponents(string: path)?.queryItems?.first { $0.name == name }?.value
+        }
     }
 
     package struct Response: Sendable {

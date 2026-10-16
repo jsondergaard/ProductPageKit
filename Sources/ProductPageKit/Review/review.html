@@ -8,149 +8,312 @@
 :root {
   color-scheme: light dark;
   --bg: #f5f5f7;
-  --card: #ffffff;
+  --surface: #ffffff;
+  --inset: #f2f2f5;
   --text: #1d1d1f;
   --muted: #6e6e73;
-  --line: #e3e3e8;
-  --accent: #0071e3;
-  --accent-text: #ffffff;
-  --good: #1e8e3e;
-  --warn: #b25e00;
-  --bad: #d70015;
-  --added: rgba(30, 142, 62, 0.16);
+  --line: #e2e2e7;
+  --accent: #0066cc;
+  --accent-soft: rgba(0, 102, 204, 0.1);
+  --on-accent: #ffffff;
+  --good: #1e7e34;
+  --warn: #9a5b00;
+  --warn-soft: rgba(255, 149, 0, 0.16);
+  --bad: #c9001a;
+  --bad-soft: rgba(215, 0, 21, 0.1);
+  --added: rgba(30, 142, 62, 0.18);
   --removed: rgba(215, 0, 21, 0.14);
-  --tag: #eef0f4;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 1px rgba(0, 0, 0, 0.03);
+  --header: 60px;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #111113;
-    --card: #1c1c1e;
+    --bg: #101012;
+    --surface: #1c1c1e;
+    --inset: #262628;
     --text: #f5f5f7;
-    --muted: #98989d;
-    --line: #2c2c2e;
-    --accent: #2997ff;
-    --good: #32d74b;
+    --muted: #a1a1a6;
+    --line: #333336;
+    --accent: #3d9bff;
+    --accent-soft: rgba(61, 155, 255, 0.16);
+    --on-accent: #ffffff;
+    --good: #4cd964;
     --warn: #ffb340;
+    --warn-soft: rgba(255, 179, 64, 0.16);
     --bad: #ff6961;
-    --added: rgba(50, 215, 75, 0.2);
-    --removed: rgba(255, 105, 97, 0.2);
-    --tag: #2c2c2e;
+    --bad-soft: rgba(255, 105, 97, 0.14);
+    --added: rgba(76, 217, 100, 0.22);
+    --removed: rgba(255, 105, 97, 0.22);
+    --shadow: none;
   }
 }
 * { box-sizing: border-box; }
+html { scroll-padding-top: calc(var(--header) + 16px); }
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
   font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
-header {
-  position: sticky; top: 0; z-index: 2;
-  background: color-mix(in srgb, var(--bg) 85%, transparent);
+button, select, textarea { font: inherit; color: inherit; }
+a { color: var(--accent); }
+code { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace; background: var(--inset); padding: 1px 5px; border-radius: 5px; }
+[hidden] { display: none !important; }
+
+/* Header */
+.top {
+  position: sticky; top: 0; z-index: 10;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--line);
 }
-.bar { max-width: 880px; margin: 0 auto; padding: 14px 20px 10px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.bar h1 { font-size: 17px; margin: 0; font-weight: 600; }
-.bar .file { color: var(--muted); font-size: 13px; }
-.bar .spacer { flex: 1; }
-button {
-  font: inherit; font-size: 13px; border-radius: 980px; border: 1px solid var(--line);
-  background: var(--card); color: var(--text); padding: 5px 12px; cursor: pointer;
+.top-inner { display: flex; align-items: center; gap: 12px 18px; padding: 10px 20px; min-height: var(--header); flex-wrap: wrap; }
+.app { display: flex; align-items: center; gap: 10px; min-width: 0; margin-right: auto; }
+.app img { width: 32px; height: 32px; border-radius: 8px; box-shadow: 0 0 0 1px var(--line); flex: none; }
+.app h1 { font-size: 16px; margin: 0; font-weight: 600; white-space: nowrap; }
+.app .file { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app .names { min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.controls { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; }
+.control { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+
+.button {
+  border-radius: 8px; border: 1px solid var(--line); background: var(--surface); padding: 5px 11px;
+  font-size: 13px; cursor: pointer; line-height: 1.3; white-space: nowrap;
 }
-button:hover { border-color: var(--muted); }
-button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-button:disabled { opacity: 0.5; cursor: default; }
-.status { font-size: 13px; }
+.button:hover { border-color: var(--muted); }
+.button:focus-visible, .segmented button:focus-visible, select:focus-visible, .nav a:focus-visible, .thumb:focus-visible, .tile:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.button[aria-pressed="true"] { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+.button:disabled { opacity: 0.45; cursor: default; }
+.button.icon { width: 30px; padding: 5px 0; text-align: center; }
+
+.picker { display: flex; align-items: center; gap: 4px; }
+select {
+  border-radius: 8px; border: 1px solid var(--line); background: var(--surface); padding: 5px 8px; font-size: 13px;
+  max-width: 230px;
+}
+.segmented { display: inline-flex; background: var(--inset); border-radius: 9px; padding: 2px; gap: 2px; max-width: 100%; overflow-x: auto; }
+.segmented button {
+  border: none; background: transparent; padding: 4px 11px; font-size: 13px; border-radius: 7px; cursor: pointer;
+  white-space: nowrap; line-height: 1.3;
+}
+.segmented button[aria-pressed="true"] { background: var(--surface); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14); font-weight: 500; }
+.status {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; text-decoration: none;
+  padding: 5px 10px; border-radius: 8px; white-space: nowrap;
+}
+.status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
 .status.ok { color: var(--good); }
-.status.bad { color: var(--bad); }
-.locales { max-width: 880px; margin: 0 auto; padding: 0 20px 12px; display: flex; gap: 6px; flex-wrap: wrap; }
-.locale { border-radius: 980px; padding: 4px 11px; font-size: 13px; background: var(--tag); border: 1px solid transparent; cursor: pointer; color: var(--text); }
-.locale.current { background: var(--accent); color: var(--accent-text); }
-.locale .count { margin-left: 6px; font-variant-numeric: tabular-nums; opacity: 0.8; }
-main { max-width: 880px; margin: 0 auto; padding: 20px; display: grid; gap: 18px; }
-/* A grid item is as wide as its content by default; the screenshot strip scrolls instead. */
-main > * { min-width: 0; }
-.problems { background: var(--card); border-radius: 14px; padding: 12px 18px; border: 1px solid var(--line); }
-.problems summary { cursor: pointer; font-size: 13px; color: var(--muted); }
-.problems li { font-size: 13px; margin: 4px 0; }
-.problems li.error { color: var(--bad); }
-section.card { background: var(--card); border-radius: 18px; padding: 22px 24px; border: 1px solid var(--line); }
-section.card > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 14px; font-weight: 600; }
-.field + .field { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
-.meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
-.meta .title { font-weight: 600; color: var(--text); font-size: 13px; }
-.meta .counter { font-variant-numeric: tabular-nums; }
-.meta .counter.over { color: var(--bad); font-weight: 600; }
-.tag { border-radius: 6px; padding: 1px 7px; background: var(--tag); font-size: 12px; }
-.tag.state-needs_review, .tag.state-new { color: var(--warn); }
-.tag.toggle { cursor: pointer; }
-.tag.toggle.on { outline: 1px solid var(--muted); }
-.meta .actions { margin-left: auto; display: flex; gap: 6px; }
-.value { white-space: pre-wrap; cursor: text; border-radius: 8px; padding: 4px 6px; margin: 0 -6px; }
-.value:hover { background: var(--tag); }
+.status.warn { color: var(--warn); background: var(--warn-soft); }
+.status.bad { color: var(--bad); background: var(--bad-soft); }
+
+/* Layout */
+.layout { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 28px; max-width: 1320px; margin: 0 auto; padding: 22px 20px 80px; }
+.nav { position: sticky; top: calc(var(--header) + 22px); align-self: start; max-height: calc(100vh - var(--header) - 44px); overflow-y: auto; }
+.nav h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 18px 10px 6px; font-weight: 600; }
+.nav h2:first-child { margin-top: 0; }
+.nav ul { list-style: none; margin: 0; padding: 0; }
+.nav a {
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; color: var(--text);
+  text-decoration: none; font-size: 14px;
+}
+.nav a:hover { background: var(--inset); }
+.nav a[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.nav .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge { font-size: 11px; font-weight: 600; border-radius: 10px; padding: 0 7px; line-height: 18px; font-variant-numeric: tabular-nums; }
+.badge.review { color: var(--warn); background: var(--warn-soft); }
+.badge.bad { color: var(--bad); background: var(--bad-soft); }
+.badge.plain { color: var(--muted); background: var(--inset); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+
+main { min-width: 0; }
+.section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.section-head h2 { font-size: 26px; line-height: 1.15; margin: 0; font-weight: 700; letter-spacing: -0.01em; }
+.section-head p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+.stack { display: grid; gap: 14px; }
+.note { color: var(--muted); font-size: 14px; margin: 0; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; box-shadow: var(--shadow); }
+.panel h3 { font-size: 15px; margin: 0 0 10px; }
+.subhead { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 26px 0 10px; }
+
+/* Fields */
+.field { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px 16px; box-shadow: var(--shadow); container-type: inline-size; }
+.field.attention { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+.field.over { border-color: var(--bad); }
+.field-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.field-head h3 { font-size: 13px; font-weight: 600; margin: 0; }
+.field-head .spacer { flex: 1; }
+.tag { font-size: 11.5px; font-weight: 500; border-radius: 6px; padding: 1px 7px; background: var(--inset); color: var(--muted); white-space: nowrap; }
+.tag.review { color: var(--warn); background: var(--warn-soft); }
+.tag.changed { color: var(--accent); background: var(--accent-soft); }
+.tag.bad { color: var(--bad); background: var(--bad-soft); }
+.count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.meter { width: 54px; height: 4px; border-radius: 2px; background: var(--inset); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+.count.near .meter i { background: var(--warn); }
+.count.over { color: var(--bad); font-weight: 600; }
+.count.over .meter i { background: var(--bad); }
+.guidance { font-size: 13px; color: var(--muted); margin: 0 0 10px; white-space: pre-wrap; background: var(--inset); border-radius: 8px; padding: 8px 11px; }
+.columns { display: grid; gap: 16px; }
+.columns.translation { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+/* A translation sits beside its source where there is room, and under it where there is not. */
+@container (max-width: 480px) { .columns.translation { grid-template-columns: minmax(0, 1fr); gap: 10px; } }
+.lang { font-size: 11.5px; color: var(--muted); font-weight: 600; margin-bottom: 3px; letter-spacing: 0.02em; }
+.source .text { color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.value {
+  white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; border-radius: 8px; padding: 4px 8px; margin: -4px -8px;
+  border: none; background: none; text-align: start; width: calc(100% + 16px); display: block; font: inherit; color: inherit;
+}
+.value:hover { background: var(--inset); }
+.value:focus-visible { outline: 2px solid var(--accent); }
 .value.empty { color: var(--muted); font-style: italic; }
-.value.name { font-size: 26px; font-weight: 700; line-height: 1.2; }
+.value.name { font-size: 24px; font-weight: 700; line-height: 1.2; }
 .value.subtitle { font-size: 17px; color: var(--muted); }
-.value.keywords { display: flex; gap: 6px; flex-wrap: wrap; }
-.chip { background: var(--tag); border-radius: 6px; padding: 2px 8px; font-size: 13px; }
-.guidance { font-size: 13px; color: var(--muted); margin: -2px 0 8px; white-space: pre-wrap; }
-.reference { margin-top: 8px; font-size: 13px; color: var(--muted); white-space: pre-wrap; border-left: 3px solid var(--line); padding-left: 10px; }
-.reference b { font-weight: 600; }
-.diff { margin-top: 8px; font-size: 13px; white-space: pre-wrap; background: var(--bg); border-radius: 10px; padding: 10px 12px; }
-.diff .label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.value.keywords { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { background: var(--inset); border-radius: 6px; padding: 1px 8px; font-size: 13px; }
+.same { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+.field-actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+.field-actions .hint { font-size: 12px; color: var(--muted); margin-right: auto; }
+textarea {
+  width: 100%; background: var(--bg); border: 1px solid var(--accent); border-radius: 10px; padding: 8px 10px;
+  resize: vertical; min-height: 44px; line-height: 1.5; outline: none; box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.diff { margin-top: 12px; font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--inset); border-radius: 10px; padding: 10px 12px; }
+.diff .lang { margin-bottom: 4px; }
 ins { background: var(--added); text-decoration: none; border-radius: 3px; }
 del { background: var(--removed); border-radius: 3px; }
-textarea {
-  width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--accent);
-  border-radius: 10px; padding: 8px 10px; resize: vertical; min-height: 44px;
+
+/* Screenshots */
+.toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.toolbar .spacer { flex: 1; }
+.filmstrip { display: flex; gap: 10px; overflow-x: auto; padding: 4px 4px 12px; margin: 0 -4px 6px; scroll-snap-type: x proximity; }
+.thumb {
+  flex: none; border: none; padding: 0; background: none; cursor: pointer; scroll-snap-align: start; text-align: center;
+  font-size: 12px; color: var(--muted); border-radius: 10px;
 }
-.editor-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; align-items: center; font-size: 12px; color: var(--muted); }
-.releases { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
-.note { font-size: 13px; color: var(--muted); }
-.error-banner { color: var(--bad); font-size: 13px; }
-.icon { width: 34px; height: 34px; border-radius: 8px; box-shadow: 0 0 0 1px var(--line); }
-.segmented { display: inline-flex; background: var(--tag); border-radius: 980px; padding: 2px; gap: 2px; }
-.segmented button { border: none; background: transparent; padding: 4px 12px; }
-.segmented button.on { background: var(--card); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
-.media-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
-.strip { display: flex; gap: 12px; overflow-x: auto; padding: 4px 2px 10px; scroll-snap-type: x proximity; }
-.shot { flex: none; margin: 0; scroll-snap-align: start; cursor: pointer; text-align: center; }
-.shot img { display: block; border-radius: 12px; background: var(--tag); box-shadow: 0 0 0 1px var(--line); }
-.shot.selected img { box-shadow: 0 0 0 3px var(--accent); }
-.shot figcaption { font-size: 12px; color: var(--muted); margin-top: 6px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cell), 1fr)); gap: 14px; }
-.grid img { width: 100%; height: auto; }
+.thumb .frame { display: block; border-radius: 9px; overflow: hidden; background: var(--inset); box-shadow: 0 0 0 1px var(--line); }
+.thumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.thumb[aria-current="true"] .frame { box-shadow: 0 0 0 3px var(--accent); }
+.thumb[aria-current="true"] { color: var(--accent); font-weight: 600; }
+.thumb .number { display: block; margin-top: 5px; }
+.thumb .missing { display: flex; height: 100%; align-items: center; justify-content: center; color: var(--warn); font-size: 18px; }
+.detail { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 400px); gap: 22px; align-items: start; }
+.detail.wide { grid-template-columns: minmax(0, 1fr); }
+.preview { margin: 0; position: sticky; top: calc(var(--header) + 22px); }
+.preview img { display: block; max-width: 100%; max-height: calc(100vh - var(--header) - 120px); width: auto; height: auto; margin: 0 auto; border-radius: 12px; box-shadow: 0 0 0 1px var(--line), 0 6px 24px rgba(0, 0, 0, 0.1); }
+.stepper { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+.placeholder {
+  border-radius: 12px; background: var(--inset); display: flex; flex-direction: column; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 13px; text-align: center; padding: 20px; gap: 6px; max-height: calc(100vh - var(--header) - 120px);
+  margin: 0 auto; width: 100%;
+}
+.placeholder strong { color: var(--text); font-size: 14px; }
+.placeholder ul { margin: 4px 0 0; padding: 0; list-style: none; }
+.loading { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.55; } }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cell), 1fr)); gap: 16px; }
+.tile { border: none; background: none; padding: 0; cursor: pointer; text-align: center; font-size: 12px; color: var(--muted); }
+.tile .frame { display: block; border-radius: 9px; overflow: hidden; background: var(--inset); box-shadow: 0 0 0 1px var(--line); }
+.tile img { display: block; width: 100%; height: auto; }
+.tile[aria-current="true"] .frame { box-shadow: 0 0 0 3px var(--accent); }
+.tile[aria-current="true"] { color: var(--accent); font-weight: 600; }
+.tile .number { display: block; margin-top: 5px; }
+.captions { display: grid; gap: 12px; }
+.captions .field { padding: 14px 16px; }
+
+/* Videos */
 .video { width: 100%; border-radius: 12px; display: block; background: #000; }
-.placeholder { border-radius: 12px; background: var(--tag); display: flex; align-items: center; justify-content: center;
-  color: var(--muted); font-size: 13px; text-align: center; padding: 20px; }
-.captions { margin-top: 14px; }
+.video-status { margin-top: 10px; font-size: 13px; color: var(--muted); }
+.video-status.warn { color: var(--warn); }
+
+/* Changes and checks */
+.change { display: grid; gap: 6px; padding: 14px 0; border-top: 1px solid var(--line); }
+.change:first-of-type { border-top: none; padding-top: 4px; }
+.change-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.change-head a { font-weight: 600; text-decoration: none; }
+.change-head a:hover { text-decoration: underline; }
+.change-head span { color: var(--muted); font-size: 13px; }
+.change .diff { margin-top: 0; }
+.locale-list { display: flex; gap: 6px; flex-wrap: wrap; }
+.problems { list-style: none; margin: 0; padding: 0; }
+.problems li { display: flex; gap: 10px; align-items: baseline; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.problems li:first-child { border-top: none; padding-top: 0; }
+.problems .sev { flex: none; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.problems .error .sev { color: var(--bad); }
+.problems .warning .sev { color: var(--warn); }
+.problems .message { flex: 1; overflow-wrap: anywhere; }
+
+.toasts { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 20; display: grid; gap: 8px; width: min(560px, calc(100vw - 32px)); }
+.toast {
+  background: var(--text); color: var(--bg); border-radius: 10px; padding: 10px 14px; font-size: 13.5px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25); display: flex; gap: 12px; align-items: center;
+}
+.toast.error { background: var(--bad); color: #fff; }
+.toast span { flex: 1; overflow-wrap: anywhere; }
+.toast button { background: none; border: none; color: inherit; cursor: pointer; font-size: 13px; opacity: 0.8; padding: 0; }
+
+@media (max-width: 860px) {
+  .detail { grid-template-columns: minmax(0, 1fr); }
+  .preview { position: static; }
+  .preview img, .placeholder { max-height: 70vh; }
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 14px 16px 60px; }
+  .nav { position: static; max-height: none; overflow: visible; display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+  .nav h2 { display: none; }
+  .nav ul { display: contents; }
+  .nav a { background: var(--surface); border: 1px solid var(--line); white-space: nowrap; padding: 5px 10px; }
+  .nav .label { overflow: visible; }
+  .top-inner { padding: 8px 16px; gap: 8px 12px; }
+  .section-head h2 { font-size: 22px; }
+}
+@media (max-width: 560px) {
+  /* Three rows of controls would hold a fifth of a phone's screen. */
+  .top { position: static; }
+  .controls { width: 100%; }
+  .picker { flex: 1; }
+  .picker select { flex: 1; max-width: none; }
+  .field { padding: 14px 14px; }
+  .control .caption { display: none; }
+}
 </style>
 </head>
 <body>
-<header>
-  <div class="bar">
-    <img class="icon" id="icon" alt="" hidden>
-    <h1 id="app">Product page</h1>
-    <span class="file" id="file"></span>
-    <span class="spacer"></span>
-    <span class="status" id="status"></span>
-    <button id="guidance">Show guidance</button>
-    <button id="live">Compare with App Store</button>
+<header class="top">
+  <div class="top-inner">
+    <div class="app">
+      <img id="icon" alt="" hidden>
+      <div class="names"><h1 id="app">Product page</h1><span class="file" id="file"></span></div>
+    </div>
+    <div class="controls" id="controls"></div>
   </div>
-  <div class="locales" id="locales"></div>
 </header>
-<main id="main"><p class="note">Loading…</p></main>
+<div class="layout">
+  <nav class="nav" id="nav" aria-label="Sections"></nav>
+  <main id="main"><p class="note">Loading…</p></main>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script>
-const state = { data: null, locale: null, release: null, live: null, loadingLive: false, open: new Set(), editing: null, error: null,
-                platform: null, position: 0, everyLocale: false };
+const ui = {
+  data: null, fieldsByKey: new Map(),
+  // From the address: #/locale/section/detail/position, where detail is a
+  // strip of screenshots or a release.
+  locale: null, section: null, detail: null, position: 0,
+  everyLocale: false,
+  compare: "off", live: null, liveLoading: false,
+  guidance: false,
+  // { id, key, language, original, area }
+  editing: null,
+  // Screenshots by strip and locale or position, and videos by locale:
+  // { list, loading, stale, error }.
+  shots: new Map(), videos: new Map(),
+  hash: "",
+};
 // Kept across renders, so a playing video does not restart on every edit.
 const videoNodes = new Map();
-
-const listing = ["name", "subtitle", "promotionalText", "description", "keywords"];
-const review = ["reviewNotes", "productReviewNote"];
 
 async function api(path, options = {}) {
   const response = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
@@ -159,41 +322,96 @@ async function api(path, options = {}) {
   return body;
 }
 
-async function load() {
-  state.data = await api("/api/state");
-  if (!state.locale) state.locale = state.data.sourceLanguage;
-  const releases = releaseKeys();
-  if (!state.release || !releases.includes(state.release)) state.release = releases[0] || null;
-  const platforms = state.data.platforms.map(p => p.id);
-  if (!platforms.includes(state.platform)) state.platform = platforms[0] || null;
-  render();
-}
-
-function releaseKeys() {
-  return state.data.fields.map(f => f.key).filter(k => k.startsWith("whatsNew."));
-}
-
-function field(key) { return state.data.fields.find(f => f.key === key); }
-function unit(key, language) { return (state.data.values[key] || {})[language]; }
-function languageFor(key) { return field(key).translatable ? state.locale : state.data.sourceLanguage; }
-
-function pending(language) {
-  if (language === state.data.sourceLanguage) return 0;
-  return state.data.fields.filter(f => f.translatable && (unit(f.key, state.data.sourceLanguage) || {}).value).filter(f => {
-    const u = unit(f.key, language);
-    return !u || !u.value || u.state !== "translated";
-  }).length;
-}
-
 function el(tag, attributes = {}, ...children) {
   const node = document.createElement(tag);
   for (const [name, value] of Object.entries(attributes)) {
     if (name === "class") node.className = value;
     else if (name.startsWith("on")) node.addEventListener(name.slice(2), value);
+    else if (value === true) node.setAttribute(name, "");
     else if (value !== false && value != null) node.setAttribute(name, value);
   }
-  for (const child of children.flat()) if (child != null) node.append(child);
+  for (const child of children.flat(Infinity)) if (child != null && child !== false) node.append(child);
   return node;
+}
+
+function plural(count, noun) { return `${count} ${noun}${count === 1 ? "" : "s"}`; }
+
+// Text with `code` spans, for messages that name commands.
+function rich(text) {
+  return text.split(/(`[^`]+`)/).map(part => part.startsWith("`") ? el("code", {}, part.slice(1, -1)) : part);
+}
+
+function toast(message, kind = "info") {
+  const node = el("div", { class: `toast ${kind}`, role: kind === "error" ? "alert" : "status" }, el("span", {}, message),
+    el("button", { onclick: () => node.remove(), "aria-label": "Dismiss" }, "Dismiss"));
+  document.getElementById("toasts").append(node);
+  if (kind !== "error") setTimeout(() => node.remove(), 2400);
+}
+
+// The copy.
+
+function field(key) { return ui.fieldsByKey.get(key); }
+function unit(key, language) { return (ui.data.values[key] || {})[language]; }
+function languageFor(key, locale = ui.locale) { return field(key).translatable ? locale : ui.data.sourceLanguage; }
+function valueOf(key, locale = ui.locale) { return (unit(key, languageFor(key, locale)) || {}).value || ""; }
+function storeName(code) { return (ui.data.locales.find(l => l.code === code) || {}).store || code; }
+function hasHistory() { return Object.keys(ui.data.committed).length > 0; }
+function committedOf(key, locale = ui.locale) { return (ui.data.committed[key] || {})[languageFor(key, locale)]; }
+
+function needsReview(key, locale = ui.locale) {
+  const info = field(key);
+  if (!info || !info.translatable || locale === ui.data.sourceLanguage) return false;
+  const source = unit(key, ui.data.sourceLanguage);
+  if (!source || !source.value) return false;
+  const current = unit(key, locale);
+  return !current || !current.value || current.state !== "translated";
+}
+
+function changed(key, locale = ui.locale) {
+  return hasHistory() && (committedOf(key, locale) || "") !== valueOf(key, locale);
+}
+
+// Undefined when App Store Connect has no such field, such as a caption.
+function liveOf(key, locale = ui.locale) {
+  if (!ui.live || !ui.live[key]) return undefined;
+  return ui.live[key][languageFor(key, locale)] || "";
+}
+
+function differs(key, locale = ui.locale) {
+  const live = liveOf(key, locale);
+  return live !== undefined && live !== valueOf(key, locale);
+}
+
+// Every catalog key a section shows, captions included.
+function sectionKeys(section) {
+  const keys = [...section.fields, ...section.strips.flatMap(s => s.captions.flat())];
+  return [...new Set(keys)].filter(field);
+}
+
+function allKeys() { return ui.data.fields.map(f => f.key); }
+
+function toReview(locale) { return allKeys().filter(k => needsReview(k, locale)).length; }
+
+// Where a key is edited: its section, and its strip and position or its release.
+function locate(key) {
+  for (const section of ui.data.sections) {
+    if (section.fields.includes(key)) {
+      return { section: section.id, detail: section.kind === "releases" ? key : (section.strips[0] || {}).id || "", position: 0 };
+    }
+    for (const strip of section.strips) {
+      const position = strip.captions.findIndex(lines => lines.includes(key));
+      if (position >= 0) return { section: section.id, detail: strip.id, position };
+    }
+  }
+  return null;
+}
+
+function sectionTitle(key) {
+  const place = locate(key);
+  const section = place && ui.data.sections.find(s => s.id === place.section);
+  if (!section) return "";
+  const strip = section.strips.find(s => s.id === place.detail);
+  return strip && strip.captions.length ? `${section.title}, ${strip.name} screenshot ${place.position + 1}` : section.title;
 }
 
 // Word-level differences, so a one-word edit in a long description reads at a glance.
@@ -215,252 +433,553 @@ function diff(before, after) {
   return out;
 }
 
-function renderField(key, options = {}) {
+// Loading and saving.
+
+async function load() {
+  setData(await api("/api/state"));
+}
+
+function setData(data) {
+  const revised = ui.data && ui.data.revision !== data.revision;
+  ui.data = data;
+  ui.fieldsByKey = new Map(data.fields.map(f => [f.key, f]));
+  if (revised) for (const map of [ui.shots, ui.videos]) for (const entry of map.values()) entry.stale = true;
+  readAddress();
+  render();
+}
+
+async function save() {
+  const editing = ui.editing;
+  try {
+    const data = await api("/api/value", { method: "PUT", body: JSON.stringify({ key: editing.key, language: editing.language, value: editing.area.value }) });
+    ui.editing = null;
+    setData(data);
+    toast("Saved to the catalog.");
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function approve(key, language) {
+  try {
+    setData(await api("/api/approve", { method: "POST", body: JSON.stringify({ key, language }) }));
+    toast(`Approved the ${storeName(language)} translation.`);
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function setCompare(mode) {
+  ui.compare = mode;
+  if (mode === "live" && !ui.live) {
+    ui.liveLoading = true;
+    render();
+    try { ui.live = await api("/api/live"); }
+    catch (error) {
+      ui.compare = "off";
+      toast(`App Store Connect: ${error.message}`, "error");
+    }
+    ui.liveLoading = false;
+  }
+  render();
+}
+
+// Fetches a list of screenshots or videos once, and again once it is stale,
+// keeping the old list on screen meanwhile.
+async function fetchMedia(map, key, path) {
+  const entry = map.get(key);
+  if (entry && (entry.loading || !entry.stale)) return;
+  map.set(key, { list: entry && entry.list, loading: true, stale: false });
+  try { map.set(key, { list: await api(path), loading: false, stale: false }); }
+  catch (error) { map.set(key, { list: entry && entry.list, loading: false, stale: false, error: error.message }); }
+  render();
+}
+
+function shotsFor(strip, locale) {
+  const key = `${strip.id}|${locale}`;
+  fetchMedia(ui.shots, key, `/api/screenshots?strip=${encodeURIComponent(strip.id)}&locale=${encodeURIComponent(locale)}`);
+  return ui.shots.get(key);
+}
+
+function positionFor(strip, position) {
+  const key = `${strip.id}#${position}`;
+  fetchMedia(ui.shots, key, `/api/screenshots?strip=${encodeURIComponent(strip.id)}&position=${position}`);
+  return ui.shots.get(key);
+}
+
+function videosFor(locale) {
+  fetchMedia(ui.videos, locale, `/api/videos?locale=${encodeURIComponent(locale)}`);
+  return ui.videos.get(locale);
+}
+
+// The address.
+
+const statusSections = [{ id: "changes", title: "Changes" }, { id: "checks", title: "Checks" }];
+
+function currentSection() { return ui.data.sections.find(s => s.id === ui.section); }
+
+function readAddress() {
+  const [locale, section, detail, position] = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
+  const data = ui.data;
+  const codes = data.locales.map(l => l.code);
+  ui.locale = codes.includes(locale) ? locale : codes.includes(data.sourceLanguage) ? data.sourceLanguage : codes[0];
+  const ids = [...data.sections.map(s => s.id), ...statusSections.map(s => s.id)];
+  ui.section = ids.includes(section) ? section : ids[0];
+  const current = currentSection();
+  const details = !current ? [] : current.kind === "releases" ? current.fields : current.strips.map(s => s.id);
+  ui.detail = details.includes(detail) ? detail : details[0] || null;
+  const strip = current && current.strips.find(s => s.id === ui.detail);
+  const asked = Math.max(parseInt(position, 10) || 0, 0);
+  // Without a theme there are no captions to count the shots by.
+  ui.position = !strip ? 0 : strip.captions.length ? Math.min(asked, strip.captions.length - 1) : asked;
+  ui.hash = address({});
+}
+
+function address(changes) {
+  const next = { locale: ui.locale, section: ui.section, detail: ui.detail || "", position: ui.position, ...changes };
+  return "#/" + [next.locale, next.section, next.detail, next.position].map(encodeURIComponent).join("/");
+}
+
+function go(changes) {
+  const target = address(changes);
+  if (target !== location.hash) location.hash = target;
+}
+
+function dirty() { return ui.editing && ui.editing.area.value !== ui.editing.original; }
+
+window.addEventListener("hashchange", () => {
+  if (dirty() && !confirm("Discard your unsaved edit?")) {
+    history.replaceState(null, "", ui.hash);
+    return;
+  }
+  ui.editing = null;
+  const section = ui.section;
+  readAddress();
+  render();
+  if (ui.section !== section) window.scrollTo({ top: 0 });
+});
+
+window.addEventListener("beforeunload", event => { if (dirty()) event.preventDefault(); });
+
+// Header.
+
+function renderHeader() {
+  const data = ui.data;
+  document.getElementById("app").textContent = data.app;
+  document.title = `${data.app}: product page review`;
+  const icon = document.getElementById("icon");
+  icon.hidden = !data.icon;
+  if (data.icon && !icon.src) icon.src = "/media/icon";
+  document.getElementById("file").textContent = data.catalog;
+
+  const index = data.locales.findIndex(l => l.code === ui.locale);
+  const select = el("select", { "aria-label": "Locale", onchange: event => go({ locale: event.target.value }) },
+    data.locales.map(locale => {
+      const count = toReview(locale.code);
+      const label = locale.store + (locale.code === data.sourceLanguage ? " (source)" : "") + (count ? `, ${count} to review` : "");
+      return el("option", { value: locale.code, selected: locale.code === ui.locale }, label);
+    }));
+  const step = offset => go({ locale: data.locales[(index + offset + data.locales.length) % data.locales.length].code });
+  const picker = el("div", { class: "picker" },
+    el("button", { class: "button icon", onclick: () => step(-1), "aria-label": "Previous locale", disabled: data.locales.length < 2 }, "‹"),
+    select,
+    el("button", { class: "button icon", onclick: () => step(1), "aria-label": "Next locale", disabled: data.locales.length < 2 }, "›"));
+
+  const modes = [["off", "Off"], ["commit", "Last commit"], ["live", ui.liveLoading ? "Reading…" : "App Store"]];
+  const compare = el("div", { class: "control" }, el("span", { class: "caption" }, "Compare with"),
+    el("div", { class: "segmented", role: "group", "aria-label": "Compare with" }, modes.map(([mode, label]) =>
+      el("button", { "aria-pressed": String(ui.compare === mode), disabled: ui.liveLoading || (mode === "commit" && !hasHistory()),
+        title: mode === "commit" && !hasHistory() ? "The catalog has no committed version" : false, onclick: () => setCompare(mode) }, label))));
+
+  const guidance = el("button", { class: "button", "aria-pressed": String(ui.guidance), onclick: () => { ui.guidance = !ui.guidance; render(); } }, "Guidance");
+
+  const errors = data.problems.filter(p => p.severity === "error").length;
+  const warnings = data.problems.length - errors;
+  const status = el("a", { class: "status " + (errors ? "bad" : warnings ? "warn" : "ok"), href: address({ section: "checks", detail: "", position: 0 }) },
+    errors ? plural(errors, "error") : warnings ? plural(warnings, "warning") : "Ready to push");
+  document.getElementById("controls").replaceChildren(picker, compare, guidance, status);
+}
+
+// Sidebar.
+
+function renderNav() {
+  const groups = [];
+  for (const section of ui.data.sections) {
+    let group = groups.find(g => g.title === section.group);
+    if (!group) groups.push(group = { title: section.group, items: [] });
+    const keys = sectionKeys(section);
+    const review = keys.filter(k => needsReview(k)).length;
+    const edited = keys.some(k => changed(k));
+    const live = ui.compare === "live" ? keys.filter(k => differs(k)).length : 0;
+    group.items.push(navItem(section.id, section.title, [
+      review ? el("span", { class: "badge review", title: `${plural(review, "field")} to review in ${storeName(ui.locale)}` }, review) : null,
+      live ? el("span", { class: "badge plain", title: `${plural(live, "field")} differ from the App Store` }, `${live} live`) : null,
+      edited ? el("span", { class: "dot", title: "Changed since the last commit" }) : null,
+    ]));
+  }
+  const errors = ui.data.problems.filter(p => p.severity === "error").length;
+  const changes = allKeys().filter(k => changed(k)).length;
+  groups.push({ title: "Review", items: [
+    navItem("changes", "Changes", changes ? el("span", { class: "badge plain" }, changes) : null),
+    navItem("checks", "Checks", ui.data.problems.length
+      ? el("span", { class: "badge " + (errors ? "bad" : "review") }, ui.data.problems.length) : null),
+  ] });
+  document.getElementById("nav").replaceChildren(...groups.flatMap(group => [
+    el("h2", {}, group.title), el("ul", {}, group.items.map(item => el("li", {}, item))),
+  ]));
+}
+
+function navItem(id, title, badges) {
+  return el("a", { href: address({ section: id, detail: "", position: 0 }), "aria-current": ui.section === id ? "page" : false },
+    el("span", { class: "label" }, title), badges);
+}
+
+// A field.
+
+function counter(value, maxLength) {
+  const length = [...value].length;
+  if (maxLength == null) return el("span", { class: "count" }, plural(length, "character"));
+  const ratio = length / maxLength;
+  return el("span", { class: "count" + (ratio > 1 ? " over" : ratio > 0.9 ? " near" : ""), title: `${length} of ${maxLength} characters` },
+    el("span", { class: "meter" }, el("i", { style: `width: ${Math.min(ratio, 1) * 100}%` })), `${length} / ${maxLength}`);
+}
+
+function display(key, value, edit) {
+  const attributes = { type: "button", dir: "auto", onclick: edit, "aria-label": `Edit ${field(key).title}` };
+  if (!value) return el("button", { ...attributes, class: "value empty" }, "Empty. Click to write it.");
+  if (key === "keywords") {
+    return el("button", { ...attributes, class: "value keywords" },
+      value.split(",").map(k => k.trim()).filter(Boolean).map(k => el("span", { class: "chip" }, k)));
+  }
+  return el("button", { ...attributes, class: `value ${key}` }, value);
+}
+
+function lineTitle(key) {
+  const line = key.split(".").pop();
+  return line[0].toUpperCase() + line.slice(1);
+}
+
+function fieldCard(key, options = {}) {
   const info = field(key);
   if (!info) return null;
+  const data = ui.data;
   const language = languageFor(key);
   const current = unit(key, language);
   const value = current ? current.value : "";
-  const committed = (state.data.committed[key] || {})[language];
-  const live = state.live ? (state.live[key] || {})[language] : undefined;
+  const translation = info.translatable && language !== data.sourceLanguage;
   const id = `${key}/${language}`;
-  const node = el("div", { class: "field" });
+  const editing = ui.editing && ui.editing.id === id;
+  const review = needsReview(key);
 
-  const meta = el("div", { class: "meta" },
-    el("span", { class: "title" }, options.title || info.title),
-    el("span", { class: "counter" + (info.maxLength != null && value.length > info.maxLength ? " over" : "") }, count(value, info.maxLength)));
-  if (language !== state.data.sourceLanguage && current) {
-    meta.append(el("span", { class: `tag state-${current.state}` }, current.state.replace("_", " ")));
-  }
-  if (!info.translatable && state.locale !== state.data.sourceLanguage) {
-    meta.append(el("span", { class: "tag" }, `${state.data.sourceLanguage} only, the same in every locale`));
-  }
-  const changedSinceCommit = state.data.committed[key] !== undefined && committed !== value && !(committed === undefined && value === "");
-  if (changedSinceCommit) {
-    meta.append(el("span", { class: "tag toggle" + (state.open.has("commit:" + id) ? " on" : ""), onclick: () => toggle("commit:" + id) }, "changed since commit"));
-  }
-  if (state.live && live !== undefined && live !== value) {
-    meta.append(el("span", { class: "tag toggle" + (state.open.has("live:" + id) ? " on" : ""), onclick: () => toggle("live:" + id) }, "differs from App Store"));
-  }
-  const actions = el("span", { class: "actions" });
-  if (current && current.value && current.state !== "translated" && language !== state.data.sourceLanguage) {
-    actions.append(el("button", { onclick: () => approve(key, language) }, "Approve"));
-  }
-  meta.append(actions);
-  node.append(meta);
-  if (info.comment && state.open.has("guidance")) node.append(el("div", { class: "guidance" }, info.comment));
+  const tags = [];
+  if (review) tags.push(el("span", { class: "tag review" }, !value ? "Not translated" : current.state === "new" ? "New" : "Needs review"));
+  if (changed(key)) tags.push(el("span", { class: "tag changed" }, "Changed since commit"));
+  if (ui.compare === "live" && differs(key)) tags.push(el("span", { class: "tag" }, "Differs from App Store"));
+  const over = info.maxLength != null && [...value].length > info.maxLength;
+  if (over) tags.push(el("span", { class: "tag bad" }, "Too long"));
 
-  if (state.editing === id) {
-    node.append(editor(key, language, value, info.maxLength));
+  const edit = () => {
+    if (ui.editing && ui.editing.id !== id && dirty() && !confirm("Discard your unsaved edit?")) return;
+    const area = el("textarea", { dir: "auto", rows: Math.max(2, Math.min(18, value.split("\n").length + 1)), "aria-label": info.title });
+    area.value = value;
+    ui.editing = { id, key, language, original: value, area };
+    render();
+    area.focus();
+  };
+
+  const node = el("article", { class: "field" + (review ? " attention" : "") + (over ? " over" : ""), id: `field-${key}` },
+    el("div", { class: "field-head" }, el("h3", {}, options.title || info.title), tags, el("span", { class: "spacer" }),
+      editing ? null : counter(value, info.maxLength)));
+  if (info.comment && (ui.guidance || editing)) node.append(el("p", { class: "guidance" }, info.comment));
+
+  let target;
+  if (editing) {
+    const area = ui.editing.area;
+    const count = el("span", {}, counter(area.value, info.maxLength));
+    area.oninput = () => count.replaceChildren(counter(area.value, info.maxLength));
+    area.onkeydown = event => {
+      if (event.key === "Escape") { ui.editing = null; render(); }
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) save();
+    };
+    target = el("div", {}, translation ? el("div", { class: "lang" }, storeName(language)) : null, area,
+      el("div", { class: "field-actions" }, el("span", { class: "hint" }, "⌘↩ saves, Esc cancels"), count,
+        el("button", { class: "button", onclick: () => { ui.editing = null; render(); } }, "Cancel"),
+        el("button", { class: "button primary", onclick: save }, "Save")));
   } else {
-    node.append(display(key, value, () => { state.editing = id; render(); }));
+    target = el("div", {}, translation ? el("div", { class: "lang" }, storeName(language)) : null, display(key, value, edit));
   }
 
-  if (info.translatable && language !== state.data.sourceLanguage) {
-    const source = unit(key, state.data.sourceLanguage);
-    if (source && source.value) node.append(el("div", { class: "reference" }, el("b", {}, state.data.sourceLanguage + "  "), source.value));
+  const source = unit(key, data.sourceLanguage);
+  node.append(translation
+    ? el("div", { class: "columns translation" },
+        el("div", { class: "source" }, el("div", { class: "lang" }, `${storeName(data.sourceLanguage)}, source`),
+          el("div", { class: "text", dir: "auto" }, source && source.value ? source.value : "Empty")), target)
+    : target);
+  if (!info.translatable && ui.locale !== data.sourceLanguage) {
+    node.append(el("p", { class: "same" }, `Not translated: the ${storeName(data.sourceLanguage)} text is used in every locale.`));
   }
-  if (state.open.has("commit:" + id)) {
-    node.append(el("div", { class: "diff" }, el("span", { class: "label" }, "Since the last commit"), diff(committed || "", value)));
+
+  if (ui.compare === "commit" && changed(key)) {
+    node.append(el("div", { class: "diff" }, el("div", { class: "lang" }, "Since the last commit"), el("div", { dir: "auto" }, diff(committedOf(key) || "", value))));
   }
-  if (state.open.has("live:" + id)) {
-    node.append(el("div", { class: "diff" }, el("span", { class: "label" }, "App Store now, against the catalog"), diff(live || "", value)));
+  if (ui.compare === "live" && differs(key)) {
+    node.append(el("div", { class: "diff" }, el("div", { class: "lang" }, "From the App Store to the catalog"), el("div", { dir: "auto" }, diff(liveOf(key), value))));
+  }
+  if (!editing && current && current.value && review) {
+    node.append(el("div", { class: "field-actions" },
+      el("button", { class: "button", onclick: edit }, "Edit"),
+      el("button", { class: "button primary", onclick: () => approve(key, language) }, "Approve")));
   }
   return node;
 }
 
-function display(key, value, edit) {
-  if (!value) return el("div", { class: "value empty", onclick: edit }, "Empty. Click to write it.");
-  if (key === "keywords") {
-    return el("div", { class: "value keywords", onclick: edit },
-      value.split(",").map(k => k.trim()).filter(Boolean).map(k => el("span", { class: "chip" }, k)));
+// Sections.
+
+function head(title, subtitle, ...extra) {
+  return el("div", { class: "section-head" }, el("div", {}, el("h2", {}, title), subtitle ? el("p", {}, subtitle) : null), extra);
+}
+
+function localeLine() {
+  return ui.locale === ui.data.sourceLanguage ? `${storeName(ui.locale)}, the source language` : storeName(ui.locale);
+}
+
+function copySection(section) {
+  const cards = section.fields.map(k => fieldCard(k));
+  return [head(section.title, localeLine()), el("div", { class: "stack" }, cards.length ? cards : el("p", { class: "note" }, "Nothing here yet."))];
+}
+
+function releasesSection(section) {
+  if (!section.fields.length) {
+    return [head(section.title, localeLine()), el("p", { class: "note" }, rich("No releases yet. `productpage release new <version>` adds one."))];
   }
-  return el("div", { class: `value ${key}`, onclick: edit }, value);
+  const versions = el("div", { class: "segmented", role: "group", "aria-label": "Release" }, section.fields.map(key =>
+    el("button", { "aria-pressed": String(key === ui.detail), onclick: () => go({ detail: key }) },
+      key.slice("whatsNew.".length), needsReview(key) ? " •" : "")));
+  return [head(section.title, localeLine()), el("div", { class: "toolbar" }, versions), fieldCard(ui.detail)];
 }
 
-function count(value, maxLength) {
-  return maxLength == null ? `${value.length}` : `${value.length} / ${maxLength}`;
+function segmented(label, options, current, pick) {
+  return el("div", { class: "segmented", role: "group", "aria-label": label }, options.map(([value, title]) =>
+    el("button", { "aria-pressed": String(value === current), onclick: () => pick(value) }, title)));
 }
 
-function editor(key, language, value, maxLength) {
-  const area = el("textarea", { rows: Math.max(2, Math.min(18, value.split("\n").length + 1)) });
-  area.value = value;
-  const counter = el("span", {}, count(value, maxLength));
-  area.addEventListener("input", () => {
-    counter.textContent = count(area.value, maxLength);
-    counter.style.color = maxLength != null && area.value.length > maxLength ? "var(--bad)" : "";
-  });
-  const cancel = () => { state.editing = null; render(); };
-  const save = async () => {
-    try {
-      state.data = await api("/api/value", { method: "PUT", body: JSON.stringify({ key, language, value: area.value }) });
-      state.editing = null;
-      state.error = null;
-    } catch (error) { state.error = error.message; }
-    render();
-  };
-  area.addEventListener("keydown", event => {
-    if (event.key === "Escape") cancel();
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) save();
-  });
-  setTimeout(() => area.focus(), 0);
-  return el("div", {}, area, el("div", { class: "editor-actions" }, counter, el("span", { class: "spacer" }),
-    el("button", { onclick: cancel }, "Cancel"), el("button", { class: "primary", onclick: save }, "Save")));
+// The size a strip shows its screenshots at: phones tall, Macs and TVs wide.
+function thumbSize(strip, height) {
+  const tall = strip.height > strip.width;
+  const h = tall ? height : Math.round(height * 0.62);
+  return { width: Math.round(h * strip.width / strip.height), height: h };
 }
 
-function toggle(name) {
-  state.open.has(name) ? state.open.delete(name) : state.open.add(name);
-  render();
+function shotImage(shot, strip, alt) {
+  return el("img", { src: shot.url, alt, width: strip.width, height: strip.height, decoding: "async" });
 }
 
-async function approve(key, language) {
-  try { state.data = await api("/api/approve", { method: "POST", body: JSON.stringify({ key, language }) }); state.error = null; }
-  catch (error) { state.error = error.message; }
-  render();
+function placeholder(strip, shot, loading, style = "") {
+  const ratio = `aspect-ratio: ${strip.width} / ${strip.height}; ${style}`;
+  if (loading || !shot) return el("div", { class: "placeholder loading", style: ratio }, "Framing…");
+  return el("div", { class: "placeholder", style: ratio }, el("strong", {}, "Not framed"),
+    el("ul", {}, shot.problems.map(problem => el("li", {}, problem[0].toUpperCase() + problem.slice(1)))));
 }
 
-async function compareLive() {
-  if (state.live) { state.live = null; render(); return; }
-  state.loadingLive = true; render();
-  try { state.live = await api("/api/live"); state.error = null; }
-  catch (error) { state.error = `App Store Connect: ${error.message}`; }
-  state.loadingLive = false; render();
-}
+function screenshotsSection(section) {
+  const nodes = [head(section.title, localeLine())];
+  if (section.fields.length) nodes.push(el("div", { class: "stack" }, section.fields.map(k => fieldCard(k))), el("h3", { class: "subhead" }, "Screenshots"));
+  const strip = section.strips.find(s => s.id === ui.detail);
+  if (!strip) {
+    nodes.push(el("p", { class: "note" }, "No screenshots on any configured platform."));
+    return nodes;
+  }
+  const toolbar = el("div", { class: "toolbar" });
+  if (section.strips.length > 1) toolbar.append(segmented("Platform", section.strips.map(s => [s.id, s.name]), strip.id, id => go({ detail: id, position: 0 })));
+  toolbar.append(el("span", { class: "spacer" }));
+  if (ui.data.locales.length > 1) {
+    toolbar.append(segmented("Show", [[false, "This locale"], [true, "Every locale"]], ui.everyLocale, value => { ui.everyLocale = value; render(); }));
+  }
+  nodes.push(toolbar);
 
-// A caption's lines, each titled by the line alone.
-function captionFields(prefix) {
-  return el("div", { class: "captions" }, ["kicker", "headline", "subline"].map(line =>
-    renderField(`${prefix}.${line}`, { title: line[0].toUpperCase() + line.slice(1) })));
-}
+  const entry = shotsFor(strip, ui.locale);
+  const shots = entry && entry.list ? entry.list : [];
+  if (entry && entry.error) nodes.push(el("p", { class: "note" }, entry.error));
+  const count = strip.captions.length || shots.length;
+  const size = thumbSize(strip, matchMedia("(max-width: 560px)").matches ? 112 : 168);
+  nodes.push(el("div", { class: "filmstrip", role: "list" }, Array.from({ length: count }, (_, position) => {
+    const shot = shots.find(s => s.position === position);
+    const frame = shot && shot.url ? shotImage(shot, strip, "")
+      : shot ? el("span", { class: "missing", title: shot.problems.join("\n") }, "!") : null;
+    return el("button", { class: "thumb", role: "listitem", "aria-current": String(position === ui.position),
+      "aria-label": `Screenshot ${position + 1}${shot && !shot.url ? ", not framed" : ""}`, onclick: () => go({ position }) },
+      el("span", { class: "frame" + (frame ? "" : " loading"), style: `width: ${size.width}px; height: ${size.height}px` }, frame),
+      el("span", { class: "number" }, position + 1));
+  })));
 
-function videoCard(kind, heading) {
-  const videos = state.data.videos.filter(v => v.kind === kind);
-  if (!videos.length) return null;
-  const video = videos.find(v => v.locale === state.locale);
-  const card = el("section", { class: "card" }, el("h2", {}, heading));
-  if (video.url) {
-    if (!videoNodes.has(video.url)) {
-      const node = el("video", { class: "video", src: video.url, autoplay: "", muted: "", loop: "", playsinline: "" });
-      node.muted = true;
-      videoNodes.set(video.url, node);
-    }
-    card.append(videoNodes.get(video.url));
-    if (!video.current) card.append(el("p", { class: "note" }, "Out of date: its caption or captures changed. Run `productpage videos render`."));
+  const captions = strip.captions[ui.position];
+  const step = offset => go({ position: (ui.position + offset + count) % count });
+  const stepper = el("div", { class: "stepper" },
+    el("button", { class: "button icon", onclick: () => step(-1), "aria-label": "Previous screenshot", disabled: count < 2 }, "‹"),
+    `Screenshot ${ui.position + 1} of ${count}`,
+    el("button", { class: "button icon", onclick: () => step(1), "aria-label": "Next screenshot", disabled: count < 2 }, "›"));
+
+  let view;
+  if (ui.everyLocale) {
+    const across = positionFor(strip, ui.position);
+    const list = across && across.list ? across.list : [];
+    const cell = Math.max(thumbSize(strip, 260).width, 150);
+    view = el("div", {}, el("div", { class: "tiles", style: `--cell: ${cell}px` }, ui.data.locales.map(locale => {
+      const shot = list.find(s => s.locale === locale.code);
+      return el("button", { class: "tile", "aria-current": String(locale.code === ui.locale), title: `Show ${locale.store}`,
+        onclick: () => { ui.everyLocale = false; go({ locale: locale.code }); } },
+        el("span", { class: "frame" }, shot && shot.url ? shotImage(shot, strip, `${locale.store}`) : placeholder(strip, shot, across && across.loading, "border-radius: 0")),
+        el("span", { class: "number" }, locale.store));
+    })), stepper);
   } else {
-    card.append(el("div", { class: "placeholder", style: `aspect-ratio: ${video.width} / ${video.height}` },
-      "Not rendered yet. Run `productpage videos render`."));
+    const shot = shots.find(s => s.position === ui.position);
+    view = el("figure", { class: "preview" },
+      shot && shot.url ? shotImage(shot, strip, `Screenshot ${ui.position + 1} in ${storeName(ui.locale)}`) : placeholder(strip, shot, !entry || entry.loading),
+      stepper);
   }
-  card.append(captionFields(video.caption));
-  return card;
+  // Every locale's screenshots need the width; their captions go underneath.
+  const detail = el("div", { class: "detail" + (captions && !ui.everyLocale ? "" : " wide") }, view);
+  if (captions) detail.append(el("div", { class: "captions" }, captions.map(k => fieldCard(k, { title: lineTitle(k) }))));
+  nodes.push(detail);
+  if (shots.some(s => !s.url)) {
+    nodes.push(el("p", { class: "note", style: "margin-top: 16px" }, rich("`productpage screenshots capture` takes the missing captures.")));
+  }
+  return nodes;
 }
 
-function screenshotsCard() {
-  const data = state.data;
-  if (!data.platforms.length) return null;
-  const platform = data.platforms.find(p => p.id === state.platform);
-  const card = el("section", { class: "card" }, el("h2", {}, "Screenshots"));
-  const bar = el("div", { class: "media-bar" });
-  if (data.platforms.length > 1) {
-    bar.append(el("span", { class: "segmented" }, data.platforms.map(p =>
-      el("button", { class: p.id === state.platform ? "on" : "", onclick: () => { state.platform = p.id; state.position = 0; state.editing = null; render(); } }, p.name))));
-  }
-  if (data.locales.length > 1) {
-    bar.append(el("span", { class: "segmented" },
-      el("button", { class: state.everyLocale ? "" : "on", onclick: () => { state.everyLocale = false; render(); } }, "This locale"),
-      el("button", { class: state.everyLocale ? "on" : "", onclick: () => { state.everyLocale = true; render(); } }, "Every locale")));
-  }
-  card.append(bar);
-  for (const problem of data.mediaProblems) card.append(el("p", { class: "note" }, problem));
-  const shots = data.screenshots.filter(s => s.platform === platform.id);
-  // At App Store proportions: a phone strip as tall as a phone shows them, a Mac strip as wide.
-  const height = platform.height > platform.width ? 400 : 230;
-  const width = Math.round(height * platform.width / platform.height);
-  if (state.everyLocale) {
-    const grid = el("div", { class: "grid", style: `--cell: ${Math.max(width * 0.8, 150)}px` });
-    for (const locale of data.locales) {
-      const shot = shots.find(s => s.locale === locale.code && s.position === state.position);
-      if (shot) grid.append(el("figure", { class: "shot" }, el("img", { src: shot.url, alt: "" }), el("figcaption", {}, locale.store)));
-    }
-    card.append(el("p", { class: "note" }, `Screenshot ${state.position + 1} in every locale.`), grid);
+function videoSection(section) {
+  const nodes = [head(section.title, localeLine())];
+  const entry = videosFor(ui.locale);
+  const video = entry && entry.list ? entry.list.find(v => v.kind === section.video) : null;
+  const panel = el("div", { class: "panel" });
+  if (!video) {
+    panel.append(el("div", { class: "placeholder loading", style: "aspect-ratio: 16 / 7" }, entry && entry.error ? entry.error : "Loading…"));
   } else {
-    card.append(el("div", { class: "strip" }, shots.filter(s => s.locale === state.locale).sort((a, b) => a.position - b.position).map(shot =>
-      el("figure", { class: "shot" + (shot.position === state.position ? " selected" : ""), onclick: () => { state.position = shot.position; state.editing = null; render(); } },
-        el("img", { src: shot.url, alt: "", width, height }), el("figcaption", {}, `${shot.position + 1}`)))));
+    if (video.url) {
+      if (!videoNodes.has(video.url)) {
+        const node = el("video", { class: "video", src: video.url, autoplay: true, muted: true, loop: true, playsinline: true, controls: true });
+        node.muted = true;
+        videoNodes.set(video.url, node);
+      }
+      panel.append(videoNodes.get(video.url));
+    } else {
+      panel.append(el("div", { class: "placeholder", style: `aspect-ratio: ${video.width} / ${video.height}` }, el("strong", {}, "Not rendered yet")));
+    }
+    const status = video.problems.length
+      ? el("div", { class: "video-status warn" }, `It cannot be rendered in ${storeName(ui.locale)} yet: `, video.problems.join("; "), ".")
+      : !video.url ? el("div", { class: "video-status" }, rich("`productpage videos render` renders it."))
+      : !video.current ? el("div", { class: "video-status warn" }, rich("Out of date: its caption or captures changed since it was rendered. `productpage videos render` renders it again."))
+      : el("div", { class: "video-status" }, "Up to date.");
+    panel.append(status);
   }
-  if (platform.captions && platform.captions[state.position]) card.append(captionFields(platform.captions[state.position]));
-  return card;
+  nodes.push(panel, el("h3", { class: "subhead" }, "Caption"), el("div", { class: "captions" }, section.fields.map(k => fieldCard(k, { title: lineTitle(k) }))));
+  return nodes;
 }
+
+function changeEntry(key, before, after, label) {
+  const place = locate(key);
+  return el("div", { class: "change" },
+    el("div", { class: "change-head" },
+      el("a", { href: place ? address(place) : "#" }, field(key).title),
+      el("span", {}, sectionTitle(key))),
+    el("div", { class: "diff" }, el("div", { class: "lang" }, label), el("div", { dir: "auto" }, diff(before, after))));
+}
+
+function changesSection() {
+  const nodes = [head("Changes", localeLine())];
+  if (!hasHistory()) {
+    nodes.push(el("p", { class: "note" }, "The catalog has no committed version to compare with."));
+  } else {
+    const keys = allKeys().filter(k => changed(k));
+    const panel = el("div", { class: "panel" }, el("h3", {}, "Since the last commit"));
+    panel.append(...(keys.length ? keys.map(k => changeEntry(k, committedOf(k) || "", valueOf(k), storeName(languageFor(k))))
+      : [el("p", { class: "note" }, `Nothing changed in ${storeName(ui.locale)}.`)]));
+    nodes.push(panel);
+    const elsewhere = ui.data.locales.filter(l => l.code !== ui.locale)
+      .map(l => ({ locale: l, count: allKeys().filter(k => field(k).translatable && changed(k, l.code)).length })).filter(e => e.count);
+    if (elsewhere.length) {
+      nodes.push(el("div", { class: "panel", style: "margin-top: 14px" }, el("h3", {}, "Changed in other locales"),
+        el("div", { class: "locale-list" }, elsewhere.map(e => el("a", { class: "button", href: address({ locale: e.locale.code }) },
+          `${e.locale.store}: ${e.count}`)))));
+    }
+  }
+  const live = el("div", { class: "panel", style: "margin-top: 14px" }, el("h3", {}, "Against the App Store"));
+  if (!ui.live) {
+    live.append(el("p", { class: "note" }, "Reads what App Store Connect shows now. Nothing is changed there."),
+      el("div", { class: "field-actions", style: "justify-content: flex-start" },
+        el("button", { class: "button", disabled: ui.liveLoading, onclick: () => setCompare("live") }, ui.liveLoading ? "Reading…" : "Compare with the App Store")));
+  } else {
+    const keys = allKeys().filter(k => differs(k));
+    live.append(...(keys.length ? keys.map(k => changeEntry(k, liveOf(k), valueOf(k), `App Store to catalog, ${storeName(languageFor(k))}`))
+      : [el("p", { class: "note" }, `The App Store matches the catalog in ${storeName(ui.locale)}.`)]));
+  }
+  nodes.push(live);
+  return nodes;
+}
+
+function checkTarget(problem) {
+  const place = problem.key && locate(problem.key);
+  return place ? address({ ...place, locale: problem.locale || ui.locale }) : null;
+}
+
+function checksSection() {
+  const problems = [...ui.data.problems].sort((a, b) => (a.severity === "error" ? 0 : 1) - (b.severity === "error" ? 0 : 1));
+  const nodes = [head("Checks", rich("What `productpage metadata check` finds, in every locale."))];
+  if (!problems.length) {
+    nodes.push(el("div", { class: "panel" }, el("p", { class: "note" }, "Every check passes.")));
+    return nodes;
+  }
+  nodes.push(el("div", { class: "panel" }, el("ul", { class: "problems" }, problems.map(problem => {
+    const target = checkTarget(problem);
+    return el("li", { class: problem.severity }, el("span", { class: "sev" }, problem.severity), el("span", { class: "message" }, problem.message),
+      target ? el("a", { href: target }, "Show") : null);
+  }))));
+  return nodes;
+}
+
+// Rendering.
 
 function render() {
-  const data = state.data;
-  document.getElementById("app").textContent = data.app;
-  const icon = document.getElementById("icon");
-  icon.hidden = !data.icon;
-  if (data.icon) icon.src = "/media/icon";
-  document.getElementById("file").textContent = data.catalog;
-  const errors = data.problems.filter(p => p.severity === "error").length;
-  const warnings = data.problems.length - errors;
-  const status = document.getElementById("status");
-  status.className = "status " + (errors ? "bad" : "ok");
-  status.textContent = errors ? `${errors} error${errors === 1 ? "" : "s"}` : "Ready to push";
-  if (warnings) status.textContent += ` · ${warnings} warning${warnings === 1 ? "" : "s"}`;
-  const liveButton = document.getElementById("live");
-  liveButton.textContent = state.loadingLive ? "Reading App Store Connect…" : state.live ? "Hide App Store" : "Compare with App Store";
-  liveButton.disabled = state.loadingLive;
-  document.getElementById("guidance").textContent = state.open.has("guidance") ? "Hide guidance" : "Show guidance";
-
-  const locales = document.getElementById("locales");
-  locales.replaceChildren(...data.locales.map(locale => {
-    const count = pending(locale.code);
-    return el("button", { class: "locale" + (locale.code === state.locale ? " current" : ""), onclick: () => { state.locale = locale.code; state.editing = null; render(); } },
-      locale.store, count ? el("span", { class: "count" }, `${count} to review`) : null);
-  }));
-
-  const main = document.getElementById("main");
-  const cards = [];
-  if (state.error) cards.push(el("p", { class: "error-banner" }, state.error));
-  if (data.problems.length) {
-    cards.push(el("details", { class: "problems", open: errors > 0 },
-      el("summary", {}, "Checks"),
-      el("ul", {}, data.problems.map(p => el("li", { class: p.severity }, p.message)))));
+  if (!ui.data) return;
+  const area = ui.editing && ui.editing.area;
+  const focused = area && document.activeElement === area;
+  const selection = focused ? [area.selectionStart, area.selectionEnd] : null;
+  renderHeader();
+  renderNav();
+  const section = currentSection();
+  const content = !section ? (ui.section === "changes" ? changesSection() : checksSection())
+    : section.kind === "releases" ? releasesSection(section)
+    : section.kind === "screenshots" ? screenshotsSection(section)
+    : section.kind === "video" ? videoSection(section)
+    : copySection(section);
+  document.getElementById("main").replaceChildren(...content.flat().filter(Boolean));
+  if (focused) {
+    area.focus();
+    area.setSelectionRange(...selection);
   }
-  cards.push(videoCard("header", "Product page header"));
-  cards.push(el("section", { class: "card" }, el("h2", {}, "Product page"),
-    ["name", "subtitle", "promotionalText", "description"].map(k => renderField(k))));
-  cards.push(screenshotsCard());
-
-  const releases = releaseKeys();
-  const whatsNew = el("section", { class: "card" }, el("h2", {}, "What's New"));
-  if (releases.length) {
-    whatsNew.append(el("div", { class: "releases" }, releases.map(k =>
-      el("button", { class: k === state.release ? "primary" : "", onclick: () => { state.release = k; state.editing = null; render(); } }, k.slice("whatsNew.".length)))));
-    whatsNew.append(renderField(state.release));
-  } else {
-    whatsNew.append(el("p", { class: "note" }, "No releases yet. Run `productpage release new <version>` to add one."));
-  }
-  cards.push(whatsNew);
-  cards.push(el("section", { class: "card" }, el("h2", {}, "Search"), renderField("keywords")));
-  cards.push(videoCard("search", "Search results"));
-  const reviewFields = review.filter(field).map(k => renderField(k));
-  if (reviewFields.length) cards.push(el("section", { class: "card" }, el("h2", {}, "App Review"), reviewFields));
-  main.replaceChildren(...cards.filter(Boolean));
+  for (const node of videoNodes.values()) if (node.isConnected && node.paused) node.play().catch(() => {});
 }
 
-document.getElementById("live").addEventListener("click", compareLive);
-document.getElementById("guidance").addEventListener("click", () => toggle("guidance"));
+document.addEventListener("keydown", event => {
+  if (!ui.data || event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.target.closest("textarea, input, select")) return;
+  const section = currentSection();
+  if (!section || section.kind !== "screenshots" || ui.everyLocale) return;
+  const strip = section.strips.find(s => s.id === ui.detail);
+  const count = strip ? strip.captions.length || (shotsFor(strip, ui.locale) || {}).list?.length || 0 : 0;
+  if (!count) return;
+  if (event.key === "ArrowRight") go({ position: (ui.position + 1) % count });
+  if (event.key === "ArrowLeft") go({ position: (ui.position - 1 + count) % count });
+});
 
-// Edits made elsewhere, in Xcode or by an agent, show up within two seconds,
-// except while something is being edited here.
+// Edits made elsewhere, in Xcode or by an agent, and new captures or videos
+// show up within two seconds, except while something is being edited here.
 setInterval(async () => {
-  if (!state.data || state.editing) return;
+  if (!ui.data || ui.editing) return;
   try {
     const { revision } = await api("/api/revision");
-    if (revision !== state.data.revision) await load();
+    if (revision !== ui.data.revision) await load();
   } catch {}
 }, 2000);
 
 load().catch(error => {
-  document.getElementById("main").replaceChildren(el("p", { class: "error-banner" }, error.message));
+  document.getElementById("main").replaceChildren(el("p", { class: "note" }, error.message));
 });
 </script>
 </body>

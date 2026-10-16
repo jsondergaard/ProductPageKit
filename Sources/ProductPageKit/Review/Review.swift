@@ -29,37 +29,46 @@ struct ReviewState: Codable, Equatable {
     struct Issue: Codable, Equatable {
         let severity: String
         let message: String
+        /// The field it is about, when the message starts with its key.
+        let key: String?
+        /// The locale it is about, when the message names one after the
+        /// key: `keywords · da: …`.
+        let locale: String?
     }
 
-    struct PlatformInfo: Codable, Equatable {
+    /// A part of the page, listed in its sidebar.
+    struct Section: Codable, Equatable {
+        enum Kind: String, Codable {
+            /// Fields shown one under another.
+            case copy
+            /// One field per version, newest first, shown one at a time.
+            case releases
+            /// Strips of screenshots with their captions, after any fields.
+            case screenshots
+            /// A video with its caption's lines as the fields.
+            case video
+        }
+
+        let id: String
+        let group: String
+        let title: String
+        let kind: Kind
+        /// Catalog keys.
+        let fields: [String]
+        var strips: [Strip] = []
+        /// The video's kind, for a video.
+        var video: String?
+    }
+
+    /// A platform's screenshots, or a custom page's on one platform.
+    struct Strip: Codable, Equatable {
         let id: String
         let name: String
         let width: Int
         let height: Int
-        /// The catalog key prefix of each shot's caption, in store order, or
-        /// nil without a theme.
-        let captions: [String]?
-    }
-
-    struct Screenshot: Codable, Equatable {
-        let platform: String
-        let locale: String
-        let position: Int
-        let url: String
-    }
-
-    struct Video: Codable, Equatable {
-        let kind: String
-        let title: String
-        let locale: String
-        /// The key prefix of its caption.
-        let caption: String
-        let width: Int
-        let height: Int
-        /// Nil until it is rendered.
-        let url: String?
-        /// False when its caption or captures changed since it was rendered.
-        let current: Bool
+        /// Each position's caption lines, by catalog key; empty without a
+        /// theme.
+        let captions: [[String]]
     }
 
     let app: String
@@ -70,18 +79,13 @@ struct ReviewState: Codable, Equatable {
     /// Changes whenever the catalog file does.
     let revision: String
     let locales: [Locale]
-    /// Listing fields, then each release newest first, then the review notes.
     let fields: [FieldInfo]
     let values: [String: [String: Unit]]
     /// The values in the last commit, for "changed since".
     let committed: [String: [String: String]]
     let problems: [Issue]
-    let platforms: [PlatformInfo]
-    let screenshots: [Screenshot]
-    let videos: [Video]
-    /// Why there are no screenshots or videos to show, such as captures not
-    /// taken yet.
-    let mediaProblems: [String]
+    /// Every field is in one of them or in one of their strips.
+    let sections: [Section]
 }
 
 /// The review page's API: read the copy, edit a value, approve a
@@ -93,11 +97,33 @@ actor Review {
         self.session = session
     }
 
+    /// A screenshot in one locale, framed as asked for, or why it could not be.
+    struct Screenshot: Codable, Equatable {
+        let locale: String
+        let position: Int
+        /// Nil when it could not be framed.
+        let url: String?
+        let problems: [String]
+    }
+
+    /// A video in one locale as last rendered, and what stops it rendering now.
+    struct Video: Codable, Equatable {
+        let kind: String
+        let locale: String
+        let width: Int
+        let height: Int
+        /// Nil until it is rendered.
+        let url: String?
+        /// False when its caption or captures changed since it was rendered.
+        let current: Bool
+        let problems: [String]
+    }
+
     var project: Project { session.project }
 
     func handle(_ request: HTTPServer.Request) async -> HTTPServer.Response {
         do {
-            switch (request.method, request.path) {
+            switch (request.method, request.route) {
             case ("GET", "/"):
                 guard let url = Bundle.module.url(forResource: "review", withExtension: "html") else {
                     return .error(500, "the review page is missing from the package")
@@ -115,13 +141,20 @@ actor Review {
                 let target = try JSONDecoder().decode(Target.self, from: request.body)
                 try approve(key: target.key, language: target.language)
                 return .json(try await state())
-            case ("GET", let path) where path.hasPrefix("/api/live"):
+            case ("GET", "/api/live"):
                 return .json(try await live())
+            case ("GET", "/api/screenshots"):
+                guard let strip = request.query("strip") else { throw Stopped(description: "name a strip of screenshots") }
+                return .json(try await screenshots(strip: strip, locale: request.query("locale"),
+                                                   position: request.query("position").flatMap { Int($0) }))
+            case ("GET", "/api/videos"):
+                guard let code = request.query("locale") else { throw Stopped(description: "name a locale") }
+                return .json(try await videos(locale: try locale(code)))
             case ("GET", "/media/icon"):
                 guard let icon = project.icon else { return .error(404, "the project has no icon") }
                 return try .file(session.root.appending(path: icon), contentType: "image/png", range: nil)
             case ("GET", let path) where path.hasPrefix("/media/"):
-                return try media(String(path.dropFirst("/media/".count)), range: request.headers["range"])
+                return try file(String(path.dropFirst("/media/".count)), range: request.headers["range"])
             default:
                 return .error(404, "no such page")
             }
@@ -163,7 +196,7 @@ actor Review {
     }
 
     /// A framed screenshot or a rendered video, by its file name in the cache.
-    func media(_ name: String, range: String?) throws -> HTTPServer.Response {
+    func file(_ name: String, range: String?) throws -> HTTPServer.Response {
         let pattern = /[0-9a-f]{32}\.(png|jpg|mp4)/
         guard let match = name.wholeMatch(of: pattern) else { return .error(404, "no such file") }
         let type = ["png": "image/png", "jpg": "image/jpeg", "mp4": "video/mp4"][String(match.1)]!
@@ -173,9 +206,11 @@ actor Review {
         return try .file(url, contentType: type, range: range)
     }
 
+    /// The copy and how the page lays it out. Screenshots and videos are
+    /// asked for separately, a strip or a locale at a time, since framing
+    /// every one takes far longer than reading the catalog.
     func state() async throws -> ReviewState {
         let copy = try session.copy()
-        let (screenshots, videos, mediaProblems) = await media(copy)
         return ReviewState(
             app: project.name,
             catalog: project.metadata.catalog,
@@ -193,77 +228,129 @@ actor Review {
                 }
             },
             committed: await committed(),
-            problems: copy.problems().map {
-                ReviewState.Issue(severity: $0.severity == .error ? "error" : "warning", message: $0.message)
-            },
-            platforms: strips(),
-            screenshots: screenshots,
-            videos: videos,
-            mediaProblems: mediaProblems
+            problems: copy.problems().map { issue($0, keys: copy.fields.map(\.key)) },
+            sections: sections(copy)
         )
     }
 
-    /// A strip of screenshots per platform, then one per custom page on each
-    /// of its platforms, with each position's caption key.
-    func strips() -> [ReviewState.PlatformInfo] {
-        let platforms = project.platforms.filter { !$0.shots.isEmpty }.map { platform in
-            ReviewState.PlatformInfo(
-                id: platform.id, name: platform.name, width: Int(canvasSize(platform.kind).width),
-                height: Int(canvasSize(platform.kind).height),
-                captions: project.frames == nil ? nil : platform.shots.map { CaptionSubject.screenshot($0).key })
+    /// A check's result, with the field and locale its message starts with.
+    func issue(_ problem: Problem, keys: [String]) -> ReviewState.Issue {
+        let message = problem.message
+        let key = keys.filter { message.hasPrefix($0 + " ") || message.hasPrefix($0 + ":") }.max { $0.count < $1.count }
+        let locale = key.flatMap { key in
+            project.locales.first { message.hasPrefix("\(key) · \($0.code):") }?.code
         }
-        let pages = project.customPages.flatMap { page in
-            page.platforms.map { kind in
-                ReviewState.PlatformInfo(
-                    id: Self.stripID(kind, page: page.key), name: "\(page.name) page, \(kind.name)",
-                    width: Int(canvasSize(kind).width), height: Int(canvasSize(kind).height),
-                    captions: project.frames == nil ? nil : page.shots.map { page.captionSubject($0).key })
-            }
-        }
-        return platforms + pages
+        return ReviewState.Issue(severity: problem.severity == .error ? "error" : "warning", message: message, key: key, locale: locale)
     }
 
-    /// Frames the screenshots, so a caption edited here shows at once, and
-    /// lists the videos as last rendered: a video takes too long to render on
-    /// every edit, so one whose inputs changed is marked out of date.
-    func media(_ copy: StoreCopy) async -> ([ReviewState.Screenshot], [ReviewState.Video], [String]) {
-        var problems: [String] = []
-        var screenshots: [ReviewState.Screenshot] = []
-        do {
-            let console = session.console
-            screenshots = try await Framer(copy: copy, cache: session.cache) { console.print($0) }
-                .frame(platforms: project.platforms, locales: project.locales).screenshots.map { screenshot in
-                    let list = screenshot.page.flatMap(project.customPage)?.shots ?? screenshot.platform.shots
-                    return ReviewState.Screenshot(platform: Self.stripID(screenshot.platform.kind, page: screenshot.page),
-                                                  locale: screenshot.locale.code, position: list.firstIndex(of: screenshot.shot)!,
-                                                  url: "/media/\(screenshot.url.lastPathComponent)")
-                }
-        } catch {
-            problems.append("\(error)")
+    /// The listing, What's New and the App Review notes, then the
+    /// screenshots, each custom page, and each video.
+    func sections(_ copy: StoreCopy) -> [ReviewState.Section] {
+        typealias Section = ReviewState.Section
+        var sections = [
+            Section(id: "listing", group: "Copy", title: "Product page", kind: .copy,
+                    fields: [Field.name, .subtitle, .promotionalText, .description].map(\.key)),
+            Section(id: "search", group: "Copy", title: "Search", kind: .copy, fields: [Field.keywords.key]),
+            Section(id: "whats-new", group: "Copy", title: "What's New", kind: .releases,
+                    fields: copy.fields.map(\.key).filter { Field.version(ofWhatsNew: $0) != nil }),
+            Section(id: "app-review", group: "Copy", title: "App Review", kind: .copy,
+                    fields: copy.fields.filter { [Field.reviewNotes, .productReviewNote].contains($0) }.map(\.key)),
+        ]
+        let platforms = project.platforms.filter { !$0.shots.isEmpty }
+        if !platforms.isEmpty {
+            sections.append(Section(id: "screenshots", group: "Screenshots", title: "App Store", kind: .screenshots, fields: [],
+                                    strips: platforms.map { strip($0.kind, page: nil) }))
         }
-        guard let theme = project.videos else { return (screenshots, [], problems) }
-        let console = session.console
-        let renderer = VideoRenderer(copy: copy, cache: session.cache, theme: theme) { console.print($0) }
-        let inputs: VideoRenderer.Sources
-        do {
-            inputs = try await renderer.sources(locales: project.locales)
-        } catch {
-            return (screenshots, [], problems + ["\(error)"])
+        for page in project.customPages {
+            let kinds = page.platforms.filter { kind in project.frameSubjects.contains { $0.page == page.key && $0.platform == kind } }
+            sections.append(Section(id: "page-\(page.key)", group: "Custom pages", title: page.name, kind: .screenshots,
+                                    fields: [page.promotionalText.key], strips: kinds.map { strip($0, page: page) }))
         }
-        problems += inputs.problems
-        let index = CacheIndex<VideoItem>.read(in: session.cache.videos)
-        var videos: [ReviewState.Video] = []
-        for asset in theme.assets {
-            for locale in project.locales {
-                let item = VideoItem(kind: asset.kind, locale: locale)
-                let file = index.file(for: item)
-                videos.append(ReviewState.Video(
-                    kind: asset.kind.rawValue, title: asset.kind.title, locale: locale.code, caption: "video.\(asset.kind.rawValue)",
-                    width: Int(asset.size.width), height: Int(asset.size.height), url: file.map { "/media/\($0)" },
-                    current: file != nil && inputs.sources.contains { $0.item == item && $0.video.url.lastPathComponent == file }))
+        for asset in project.videos?.assets ?? [] {
+            let title = asset.kind.title
+            sections.append(Section(id: "video-\(asset.kind.rawValue)", group: "Videos",
+                                    title: title.prefix(1).uppercased() + title.dropFirst(), kind: .video,
+                                    fields: Caption.Line.allCases.map { Field.caption(.video(asset.kind), $0).key },
+                                    video: asset.kind.rawValue))
+        }
+        return sections
+    }
+
+    /// A platform's list of shots, or a custom page's on that platform, with
+    /// each position's caption lines.
+    func strip(_ kind: Platform.Kind, page: CustomPage?) -> ReviewState.Strip {
+        let size = canvasSize(kind)
+        let shots = page?.shots ?? project.platform(kind)?.shots ?? []
+        return ReviewState.Strip(
+            id: Self.stripID(kind, page: page?.key), name: kind.name, width: Int(size.width), height: Int(size.height),
+            captions: project.frames == nil ? [] : shots.map { shot in
+                let subject = page?.captionSubject(shot) ?? .screenshot(shot)
+                return Caption.Line.allCases.map { Field.caption(subject, $0).key }
+            })
+    }
+
+    /// A strip's screenshots in one locale, or one position of it in every
+    /// locale, framed so a caption edited here shows at once.
+    func screenshots(strip: String, locale code: String?, position: Int?) async throws -> [Screenshot] {
+        let subjects = project.frameSubjects.filter { Self.stripID($0.platform, page: $0.page) == strip }
+        guard !subjects.isEmpty else { throw Stopped(description: "\(strip) is not a strip of screenshots") }
+        let chosen: [FrameSubject]
+        let locales: [StoreLocale]
+        switch (code, position) {
+        case (let code?, nil):
+            (chosen, locales) = (subjects, [try locale(code)])
+        case (nil, let position?) where subjects.indices.contains(position):
+            (chosen, locales) = ([subjects[position]], project.locales)
+        default:
+            throw Stopped(description: "ask for a strip in one locale, or for one of its positions in every locale")
+        }
+        let report = try await frame(chosen, locales: locales)
+        return locales.flatMap { locale in
+            chosen.map { subject in
+                let item = FramedItem(subject, locale: locale)
+                return Screenshot(
+                    locale: locale.code, position: subjects.firstIndex(of: subject)!,
+                    url: report.screenshots.first { FramedItem($0.subject, locale: $0.locale) == item }
+                        .map { "/media/\($0.url.lastPathComponent)" },
+                    problems: report.problems.filter { $0.item == item }.map(\.reason))
             }
         }
-        return (screenshots, videos, problems)
+    }
+
+    /// The framing under way. One runs at a time, since each rewrites the
+    /// cache's index and deletes the files it does not name.
+    private var framing: Task<Void, Never>?
+
+    func frame(_ subjects: [FrameSubject], locales: [StoreLocale]) async throws -> Framer.Report {
+        let previous = framing
+        let framer = Framer(copy: try session.copy(), cache: session.cache) { [console = session.console] in console.print($0) }
+        let task = Task {
+            await previous?.value
+            return try await framer.frame(subjects, locales: locales)
+        }
+        framing = Task { _ = try? await task.value }
+        return try await task.value
+    }
+
+    /// The videos in `locale` as last rendered. A video takes too long to
+    /// render on every edit, so one whose inputs changed is marked out of
+    /// date.
+    func videos(locale: StoreLocale) async throws -> [Video] {
+        guard let theme = project.videos else { return [] }
+        let renderer = VideoRenderer(copy: try session.copy(), cache: session.cache, theme: theme) {
+            [console = session.console] in console.print($0)
+        }
+        let inputs = try await renderer.sources(locales: [locale])
+        let index = CacheIndex<VideoItem>.read(in: session.cache.videos)
+        return theme.assets.map { asset in
+            let item = VideoItem(kind: asset.kind, locale: locale)
+            let file = index.file(for: item)
+            return Video(
+                kind: asset.kind.rawValue, locale: locale.code, width: Int(asset.size.width), height: Int(asset.size.height),
+                url: file.map { "/media/\($0)" },
+                current: file != nil && inputs.sources.contains { $0.item == item && $0.video.url.lastPathComponent == file },
+                problems: inputs.problems.filter { $0.item == item }.map(\.reason))
+        }
     }
 
     /// The size a platform's screenshots are framed at.

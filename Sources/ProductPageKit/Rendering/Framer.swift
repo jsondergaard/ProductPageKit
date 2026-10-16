@@ -33,13 +33,15 @@ struct Framer {
     var project: Project { copy.project }
 
     struct Report {
-        /// Every screenshot of the platforms and locales framed: each
-        /// platform's list, then each custom page's, in order.
+        /// Every screenshot framed: each platform's list, then each custom
+        /// page's, in order.
         var screenshots: [FramedScreenshot]
         var drawn: Int
         /// Caption lines shown in the source language for want of a
         /// translation: `screenshot.inbox.headline · da`.
         var untranslated: [String]
+        /// Why each screenshot left out could not be framed.
+        var problems: [RenderProblem<FramedItem>]
 
         /// The platform lists' screenshots, without the custom pages'.
         var store: [FramedScreenshot] { screenshots.filter { $0.page == nil } }
@@ -63,13 +65,19 @@ struct Framer {
         case file(URL)
     }
 
+    /// Frames every listed shot of `platforms` in `locales`.
     func frame(platforms: [Platform], locales: [StoreLocale]) async throws -> Report {
         let kinds = Set(platforms.map(\.kind))
-        let subjects = project.frameSubjects.filter { kinds.contains($0.platform) }
+        return try await frame(project.frameSubjects.filter { kinds.contains($0.platform) }, locales: locales)
+    }
+
+    /// Frames each of `subjects` in `locales` that has its sources and
+    /// caption, and says why each other one could not be framed.
+    func frame(_ subjects: [FrameSubject], locales: [StoreLocale]) async throws -> Report {
         let fileDigests = try await files.digests(for: subjects.flatMap(project.sources(for:)))
         var jobs: [Job] = []
         var captions = CaptionReader(copy)
-        var problems: [String] = []
+        var problems: [RenderProblem<FramedItem>] = []
         var digests: [URL: String] = [:]
         // A list at a time, each locale's shots in order.
         let lists = Dictionary(grouping: subjects) { ListID(platform: $0.platform.rawValue, page: $0.page) }
@@ -82,11 +90,12 @@ struct Framer {
                 let page = subject.page.flatMap(project.customPage)
                 let list = page?.shots ?? platform.shots
                 let position = list.firstIndex(of: subject.shot)!
-                let sources = project.sources(for: subject)
+                let item = FramedItem(subject, locale: locale)
+                var reasons: [String] = []
                 var key = RenderKey("framed")
                 key.add(project.output.identifier)
                 var found: [FrameSource: Found] = [:]
-                for source in sources {
+                for source in project.sources(for: subject) {
                     switch find(source, locale: locale, files: fileDigests) {
                     case .success(let place):
                         found[source] = place
@@ -100,33 +109,36 @@ struct Framer {
                             key.add(fileDigests.values.first { $0.0 == url }!.1)
                         }
                     case .failure(let problem):
-                        problems.append("\(problem) in \(locale.code), for \(describe(subject))")
+                        reasons.append(problem.description)
                     }
                 }
-                guard found.count == sources.count else { continue }
                 var caption: Caption?
                 if project.frames != nil {
-                    guard let read = captions.caption(page?.captionSubject(subject.shot) ?? .screenshot(subject.shot), locale: locale)
-                    else { continue }
-                    caption = read
-                    for part in [subject.platform.rawValue, subject.page ?? "", "\(position)", "\(list.count)", locale.code] {
-                        key.add(part)
+                    switch captions.caption(page?.captionSubject(subject.shot) ?? .screenshot(subject.shot), locale: locale) {
+                    case .success(let read):
+                        caption = read
+                        for part in [subject.platform.rawValue, subject.page ?? "", "\(position)", "\(list.count)", locale.code] {
+                            key.add(part)
+                        }
+                        key.add(read)
+                    case .failure(let missing):
+                        reasons.append(missing.description)
                     }
-                    key.add(read)
+                }
+                guard reasons.isEmpty else {
+                    problems += reasons.map {
+                        RenderProblem(item: item, reason: $0, description: "\($0) in \(locale.code), for \(describe(subject))")
+                    }
+                    continue
                 }
                 let file = "\(key.finalize()).\(project.output.fileExtension)"
                 let name = page?.fileName(for: subject.shot) ?? platform.fileName(for: subject.shot)
                 jobs.append(Job(
-                    item: FramedItem(subject, locale: locale),
+                    item: item,
                     screenshot: FramedScreenshot(subject: subject, platform: platform, locale: locale,
                                                  url: cache.framed.appending(path: file), name: "\(name).\(project.output.fileExtension)"),
                     position: position, count: list.count, caption: caption, sources: found))
             }
-        }
-        problems += captions.problems
-        guard problems.isEmpty else {
-            throw Stopped(description: "Nothing framed:\n" + problems.map { "  \($0)" }.joined(separator: "\n")
-                          + "\n`productpage screenshots capture` takes the captures; the catalog holds the captions.")
         }
 
         try FileManager.default.createDirectory(at: cache.framed, withIntermediateDirectories: true)
@@ -140,15 +152,15 @@ struct Framer {
             try await group.waitForAll()
         }
 
-        let platformIDs = Set(platforms.map(\.kind.rawValue))
-        let localeCodes = Set(locales.map(\.code))
-        let configuredLists = Set(project.frameSubjects.map { ListID(platform: $0.platform.rawValue, page: $0.page) })
-        let configuredLocales = Set(project.locales.map(\.code))
+        // Each run names the files it framed, and drops what it was asked
+        // to frame but could not, and what the project no longer frames.
+        let asked = Set(subjects.flatMap { subject in locales.map { FramedItem(subject, locale: $0) } })
+        let configured = Set(project.frameSubjects.flatMap { subject in project.locales.map { FramedItem(subject, locale: $0) } })
         try CacheIndex.update(in: cache.framed, with: jobs.map { ($0.item, $0.screenshot.url.lastPathComponent) }) {
-            (platformIDs.contains($0.platform) && localeCodes.contains($0.locale))
-                || !configuredLists.contains(ListID(platform: $0.platform, page: $0.page)) || !configuredLocales.contains($0.locale)
+            asked.contains($0) || !configured.contains($0)
         }
-        return Report(screenshots: jobs.map(\.screenshot), drawn: missing.count, untranslated: captions.untranslated)
+        return Report(screenshots: jobs.map(\.screenshot), drawn: missing.count, untranslated: captions.untranslated,
+                      problems: problems)
     }
 
     /// A platform's list, or a custom page's on a platform.
