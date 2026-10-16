@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import ProductPageKitControl
+import ProductPageKitCore
 
 /// One launch of an app under the runner's control: it connects and says
 /// `hello`, then shows each scene asked for, then quits.
@@ -8,7 +9,8 @@ import ProductPageKitControl
 /// Every wait ends on something the app does (connecting, `ready`, `failed`,
 /// closing, exiting) or on a deadline that turns into an error naming what
 /// never happened. A scene waiting for the app to be in front has it
-/// brought forward.
+/// brought forward, and one that left the front before it was photographed
+/// is shown and photographed again.
 final class AppSession: Sendable {
     let hello: Hello
     private let mailbox: Mailbox
@@ -25,6 +27,9 @@ final class AppSession: Sendable {
     /// press its way through the system's screens first.
     static let testReadyTimeout: Duration = .seconds(240)
     static let quitTimeout: Duration = .seconds(15)
+    /// How many times a scene is photographed before an app that keeps
+    /// leaving the front is given up on.
+    static let photographAttempts = 3
     /// How long an app may take to build a component and export it: longer
     /// than its own half minute to settle and half minute to hold still, so
     /// a component that does neither arrives with the app's reason.
@@ -69,19 +74,27 @@ final class AppSession: Sendable {
         }
     }
 
-    /// Asks for `request` and returns once the app reports it on screen.
-    func show(_ request: SceneRequest, within timeout: Duration = readyTimeout) async throws -> Ready {
-        try await ask(.apply(request), about: request, to: (do: "draw", did: "drew"), within: timeout) {
-            if case .ready(let ready) = $0, ready.request == request { ready } else { nil }
+    /// Asks for `request`, has `take` photograph it once the app reports it
+    /// on screen, and returns the photograph with the scene's highlights.
+    /// A scene that left the front in between is asked for and photographed
+    /// again, since the photograph may show the home screen or another app.
+    func photograph(_ request: SceneRequest, within timeout: Duration = readyTimeout,
+                    take: (Ready) async throws -> Frame) async throws -> (frame: Frame, highlights: Highlights) {
+        for _ in 0..<Self.photographAttempts {
+            let ready = try await ask(.apply(request), about: request, to: (do: "draw", did: "drew"), within: timeout) {
+                if case .ready(let ready) = $0, ready.request == request { ready } else { nil }
+            }
+            let frame = try await take(ready)
+            let answer: Photographed = try await ask(.photographed(request), about: request, to: (do: "measure", did: "measured")) {
+                switch $0 {
+                case .highlights(let highlights) where highlights.request == request: .kept(highlights: highlights.rects)
+                case .leftFront(let left) where left == request: .leftFront
+                default: nil
+                }
+            }
+            if case .kept(let rects) = answer { return (frame, frame.highlights(rects)) }
         }
-    }
-
-    /// Where the scene on screen's highlights are, as fractions of what is
-    /// photographed.
-    func highlights(of request: SceneRequest) async throws -> [CGRect] {
-        try await ask(.highlights(request), about: request, to: (do: "measure", did: "measured")) {
-            if case .highlights(let highlights) = $0, highlights.request == request { highlights.rects } else { nil }
-        }
+        throw RunnerError.leftFront(describedAs, request: request.description, attempts: Self.photographAttempts)
     }
 
     /// The component, with nothing around it. A Mac app shows it in a window
@@ -120,6 +133,12 @@ final class AppSession: Sendable {
         }
     }
 
+    /// How the app answers `photographed`.
+    private enum Photographed {
+        case kept(highlights: [CGRect])
+        case leftFront
+    }
+
     /// Sends `message` and waits for the answer `match` picks out, or the
     /// app's failure to give it. A deadline that passes names what the scene
     /// last said it was waiting for.
@@ -152,17 +171,21 @@ final class AppSession: Sendable {
         }
     }
 
-    /// Sends `quit` and waits for the app to go. Returns false when it did not
-    /// within the deadline, for the caller to end it.
+    /// Sends `quit` and waits for the app to go: for its process to end when
+    /// the runner launched it, since its connection closes first, and a
+    /// launch while the system still takes the last instance down can land
+    /// behind the home screen. Returns false when it did not go within the
+    /// deadline, for the caller to end it.
     @discardableResult
     func quit() async -> Bool {
         defer { watch?.cancel() }
         try? connection.send(.quit)
         while let event = try? await mailbox.next(within: Self.quitTimeout) {
             switch event {
-            case .closed, .exited: return true
+            case .exited: return true
+            case .closed where watch == nil: return true
+            case .closed, .message: continue
             case .connected(let extra): extra.close()
-            case .message: continue
             }
         }
         connection.close()

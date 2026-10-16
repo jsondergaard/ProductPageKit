@@ -213,9 +213,11 @@ Mac the window is key. Until then it says which of these it waits for: the
 runner brings an app that is not in front forward, and names what a scene
 still waited for when it gives up on it. Once the scene is ready, the runner
 takes frames until two in a row match, so animations and late images settle
-without a fixed wait. A view that loops on purpose holds still when
-`\.isCapturingScreenshots` is true; one that cannot, such as playing video,
-is marked `.captureMoving()` and left out of the comparison.
+without a fixed wait. An app that left the front while it was photographed
+is brought forward and photographed again. A view that loops on purpose
+holds still when `\.isCapturingScreenshots` is true; one that cannot, such
+as playing video, is marked `.captureMoving()` and left out of the
+comparison.
 
 - iPhone, iPad and Apple TV run on cloned simulators, one for every four
   cores and at most one per locale, with 9:41 in the status bar.

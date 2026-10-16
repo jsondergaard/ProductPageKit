@@ -288,13 +288,13 @@ public struct ScreenshotRunner: Sendable {
                                                                         device: device, listener: listener)
             do {
                 for shot in planned.shots {
-                    let request = SceneRequest(scene: shot.scene, variant: shot.variant)
-                    let ready = try await session.show(request)
-                    let frame = try await FrameStability(evidence: cache.logs).settle("\(shot) in \(locale.code)", moving: ready.moving,
-                                                                  capture: try await device.frames(for: ready))
+                    let (frame, highlights) = try await session.photograph(SceneRequest(scene: shot.scene, variant: shot.variant)) {
+                        try await FrameStability(evidence: cache.logs).settle("\(shot) in \(locale.code)", moving: $0.moving,
+                                                                          capture: try await device.frames(for: $0))
+                    }
                     let file = cache.capture(target.platform, locale, shot)
                     try frame.png.write(to: file, options: .atomic)
-                    try frame.highlights(try await session.highlights(of: request)).write(for: file)
+                    try highlights.write(for: file)
                     report.shots.append(file)
                     log("  \(target.platform.id) \(locale.code)  \(file.lastPathComponent)")
                 }
@@ -405,13 +405,16 @@ public struct ScreenshotRunner: Sendable {
         do {
             try session.check(bundleID: nil, platform: platform.controlPlatform, scenes: captures.map(\.scene.scene))
             for capture in captures {
-                let ready = try await session.show(SceneRequest(scene: capture.scene.scene, variant: capture.scene.variant),
-                                                   within: AppSession.testReadyTimeout)
-                let frame = try await FrameStability(evidence: cache.logs).settle("\(capture.scene) from \(test)", moving: ready.moving,
-                                                              capture: try await device.frames(for: ready))
+                let (frame, highlights) = try await session.photograph(
+                    SceneRequest(scene: capture.scene.scene, variant: capture.scene.variant), within: AppSession.testReadyTimeout
+                ) {
+                    try await FrameStability(evidence: cache.logs).settle("\(capture.scene) from \(test)", moving: $0.moving,
+                                                                      capture: try await device.frames(for: $0))
+                }
                 let file = file(for: capture, on: platform)
                 try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try frame.png.write(to: file, options: .atomic)
+                try highlights.write(for: file)
                 log("  \(platform.id) \(project.primaryLocale.code)  \(file.lastPathComponent) (from \(test))")
                 taken.append((capture, file))
             }

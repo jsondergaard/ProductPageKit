@@ -17,6 +17,7 @@ public enum RunnerError: Error, CustomStringConvertible {
     case appExited(String, before: String)
     case timedOut(String)
     case sceneFailed(String, String)
+    case leftFront(String, request: String, attempts: Int)
     case appMismatch([String])
     case noWindow(String)
     case windowNotFound(Int)
@@ -64,6 +65,8 @@ public enum RunnerError: Error, CustomStringConvertible {
             "Gave up waiting for \(what)."
         case .sceneFailed(let request, let reason):
             "The app could not show \(request): \(reason)"
+        case .leftFront(let app, let request, let attempts):
+            "\(app) left the front before \(request) was photographed, \(attempts) times in a row."
         case .appMismatch(let problems):
             "The app does not match the project:\n" + problems.map { "  \($0)" }.joined(separator: "\n")
         case .noWindow(let request):

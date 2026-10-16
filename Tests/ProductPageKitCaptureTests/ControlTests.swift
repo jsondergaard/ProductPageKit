@@ -8,8 +8,10 @@ import Testing
         let apply = String(decoding: try LineCodec.encode(RunnerMessage.apply(SceneRequest(scene: "library", variant: "pro"))), as: UTF8.self)
         #expect(apply == #"{"scene":"library","type":"apply","variant":"pro"}"# + "\n")
         #expect(String(decoding: try LineCodec.encode(RunnerMessage.quit), as: UTF8.self) == #"{"type":"quit"}"# + "\n")
-        let highlights = String(decoding: try LineCodec.encode(RunnerMessage.highlights(SceneRequest(scene: "inbox"))), as: UTF8.self)
-        #expect(highlights == #"{"scene":"inbox","type":"highlights"}"# + "\n")
+        let photographed = String(decoding: try LineCodec.encode(RunnerMessage.photographed(SceneRequest(scene: "inbox"))), as: UTF8.self)
+        #expect(photographed == #"{"scene":"inbox","type":"photographed"}"# + "\n")
+        let left = String(decoding: try LineCodec.encode(AppMessage.leftFront(SceneRequest(scene: "inbox", variant: "pro"))), as: UTF8.self)
+        #expect(left == #"{"scene":"inbox","type":"leftFront","variant":"pro"}"# + "\n")
         let export = String(decoding: try LineCodec.encode(RunnerMessage.export(ComponentRequest(name: "sources", state: "1"))), as: UTF8.self)
         #expect(export == #"{"name":"sources","state":"1","type":"export"}"# + "\n")
         let waiting = String(decoding: try LineCodec.encode(AppMessage.waiting(Waiting(SceneRequest(scene: "inbox"), reasons: [.activeScene]))),
@@ -19,7 +21,7 @@ import Testing
 
     @Test func everyRunnerMessageSurvivesTheWire() throws {
         let messages: [RunnerMessage] = [
-            .apply(SceneRequest(scene: "library", variant: "pro")), .highlights(SceneRequest(scene: "inbox")),
+            .apply(SceneRequest(scene: "library", variant: "pro")), .photographed(SceneRequest(scene: "inbox")),
             .export(ComponentRequest(name: "sources", variant: "pro")), .taken(ComponentRequest(name: "sources")), .quit,
         ]
         var decoder = LineDecoder<RunnerMessage>()
@@ -46,6 +48,7 @@ import Testing
             .ready(Ready(SceneRequest(scene: "inbox", variant: "pro"), window: nil)),
             .waiting(Waiting(SceneRequest(scene: "inbox", variant: "pro"), reasons: [.views, .conditions, .activeScene, .keyWindow])),
             .highlights(SceneHighlights(SceneRequest(scene: "inbox"), rects: [CGRect(x: 0.1, y: 0.25, width: 0.8, height: 0.125)])),
+            .leftFront(SceneRequest(scene: "inbox", variant: "pro")),
             .failed(Failure(SceneRequest(scene: "inbox"), reason: "no fixture\nfor it")),
             .exported(ExportedComponent(ComponentRequest(name: "sources"), png: Data([0x89, 0x50, 0x4E, 0x47]))),
             .showing(ShownComponent(ComponentRequest(name: "sources", state: "1", variant: "pro"),

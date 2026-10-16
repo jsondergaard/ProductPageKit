@@ -190,44 +190,101 @@ import Testing
         }
     }
 
+    /// A process standing in for the app's, which `quit` waits to end.
+    static func process() throws -> Process {
+        let process = Process()
+        process.executableURL = URL(filePath: "/bin/sleep")
+        process.arguments = ["600"]
+        try process.run()
+        return process
+    }
+
     @Test func helloThenEachSceneThenQuit() async throws {
         let listener = try await ControlListener.start()
         defer { listener.stop() }
         let mailbox = Mailbox()
         listener.expect(mailbox)
         let app = FakeApp(port: listener.port)
-        let hello = Hello(pid: getpid(), bundleID: "com.example.app", platform: .iOS,
+        let process = try Self.process()
+        defer { process.terminate() }
+        let hello = Hello(pid: process.processIdentifier, bundleID: "com.example.app", platform: .iOS,
                           scenes: [SceneDescription(name: "inbox", relaunch: false), SceneDescription(name: "broken", relaunch: false)],
                           variantsRelaunch: false)
         try app.send(.hello(hello))
-        let session = try await AppSession(mailbox: mailbox, pid: getpid(), describedAs: "the fake app") {}
+        let session = try await AppSession(mailbox: mailbox, pid: process.processIdentifier, describedAs: "the fake app") {}
         #expect(session.hello == hello)
 
         let inbox = SceneRequest(scene: "inbox")
-        async let ready = session.show(inbox)
+        let frame = try Frame(image: FrameStabilityTests().image(width: 200))
+        async let photographed = session.photograph(inbox) { ready in
+            #expect(ready.request == inbox)
+            return frame
+        }
         #expect(try await app.next() == .apply(inbox))
         // A stale answer for another scene is not this one's.
         try app.send(.ready(Ready(SceneRequest(scene: "other"), window: nil)))
         try app.send(.ready(Ready(inbox, window: nil)))
-        #expect(try await ready.request == inbox)
-
-        // Measured once photographed.
-        async let highlights = session.highlights(of: inbox)
-        #expect(try await app.next() == .highlights(inbox))
-        let row = CGRect(x: 0.1, y: 0.4, width: 0.8, height: 0.1)
-        try app.send(.highlights(SceneHighlights(inbox, rects: [row])))
-        #expect(try await highlights == [row])
+        // Measured once photographed, in the photograph's pixels.
+        #expect(try await app.next() == .photographed(inbox))
+        try app.send(.highlights(SceneHighlights(inbox, rects: [CGRect(x: 0.1, y: 0.4, width: 0.8, height: 0.1)])))
+        #expect(try await photographed.highlights == Highlights([CGRect(x: 20, y: 40, width: 160, height: 10)]))
 
         let broken = SceneRequest(scene: "broken")
-        let failure = Task { try await session.show(broken) }
+        let failure = Task { try await session.photograph(broken) { _ in frame } }
         #expect(try await app.next() == .apply(broken))
         try app.send(.failed(Failure(broken, reason: "no fixture")))
         await #expect(throws: RunnerError.self) { try await failure.value }
 
-        async let quit = session.quit()
+        // Gone once its process ends, not when its connection closes.
+        let quit = Task { await session.quit() }
         #expect(try await app.next() == .quit)
         app.connection.cancel()
-        #expect(await quit)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(process.isRunning)
+        process.terminate()
+        #expect(await quit.value)
+    }
+
+    /// The system can send a freshly launched app behind the home screen
+    /// after it drew, and the frames then settle on the home screen. The app
+    /// says so when it hears the scene was photographed, and the runner
+    /// brings it forward and takes it again, a few times at most.
+    @Test func aSceneThatLeftTheFrontIsPhotographedAgain() async throws {
+        let listener = try await ControlListener.start()
+        defer { listener.stop() }
+        let mailbox = Mailbox()
+        listener.expect(mailbox)
+        let app = FakeApp(port: listener.port)
+        try app.send(.hello(Hello(pid: getpid(), bundleID: "com.example.app", platform: .tvOS, scenes: [], variantsRelaunch: true)))
+        let fronts = Fronts()
+        let session = try await AppSession(mailbox: mailbox, pid: getpid(), describedAs: "the fake app") { await fronts.add() }
+        let home = try Frame(image: FrameStabilityTests().image(marked: 1)), scene = try Frame(image: FrameStabilityTests().image(marked: 2))
+        let photographs = Photographs([home, scene])
+
+        let detail = SceneRequest(scene: "detail", variant: "blue")
+        async let photographed = session.photograph(detail) { _ in await photographs.next() }
+        #expect(try await app.next() == .apply(detail))
+        try app.send(.ready(Ready(detail, window: nil)))
+        #expect(try await app.next() == .photographed(detail))
+        try app.send(.leftFront(detail))
+        #expect(try await app.next() == .apply(detail))
+        try app.send(.waiting(Waiting(detail, reasons: [.activeScene])))
+        try app.send(.ready(Ready(detail, window: nil)))
+        #expect(try await app.next() == .photographed(detail))
+        try app.send(.highlights(SceneHighlights(detail, rects: [])))
+        #expect(try await photographed.frame.png == scene.png)
+        #expect(await fronts.count == 1)
+
+        let settings = SceneRequest(scene: "settings")
+        let restless = Task { try await session.photograph(settings) { _ in home } }
+        for _ in 0..<AppSession.photographAttempts {
+            #expect(try await app.next() == .apply(settings))
+            try app.send(.ready(Ready(settings, window: nil)))
+            #expect(try await app.next() == .photographed(settings))
+            try app.send(.leftFront(settings))
+        }
+        let error = await #expect(throws: RunnerError.self) { try await restless.value }
+        #expect(error?.description == "the fake app left the front before settings was photographed, 3 times in a row.")
     }
 
     /// A launch can land behind the home screen, and a Mac app behind
@@ -243,19 +300,22 @@ import Testing
         let fronts = Fronts()
         let session = try await AppSession(mailbox: mailbox, pid: getpid(), describedAs: "the fake app") { await fronts.add() }
 
+        let frame = try Frame(image: FrameStabilityTests().image())
         let detail = SceneRequest(scene: "detail", variant: "blue")
-        async let ready = session.show(detail)
+        async let photographed = session.photograph(detail) { _ in frame }
         #expect(try await app.next() == .apply(detail))
         try app.send(.waiting(Waiting(detail, reasons: [.conditions, .activeScene])))
         try app.send(.waiting(Waiting(detail, reasons: [.conditions])))
         try app.send(.waiting(Waiting(detail, reasons: [.activeScene])))
         try app.send(.ready(Ready(detail, window: nil)))
-        #expect(try await ready.request == detail)
+        #expect(try await app.next() == .photographed(detail))
+        try app.send(.highlights(SceneHighlights(detail, rects: [])))
+        #expect(try await photographed.frame.png == frame.png)
         #expect(await fronts.count == 2)
 
         // A scene that never gets the front says so when the runner gives up.
         let settings = SceneRequest(scene: "settings")
-        let late = Task { try await session.show(settings, within: .milliseconds(300)) }
+        let late = Task { try await session.photograph(settings, within: .milliseconds(300)) { _ in frame } }
         #expect(try await app.next() == .apply(settings))
         try app.send(.waiting(Waiting(settings, reasons: [.keyWindow])))
         let error = await #expect(throws: RunnerError.self) { try await late.value }
@@ -288,8 +348,8 @@ import Testing
 
         let shown = ComponentRequest(name: "card", state: "1")
         let window = WindowInfo(number: 7, frame: CGRect(x: 0, y: 0, width: 2, height: 1))
-        let photographs = Photographs(black: try Frame(image: Self.pixels([0, 0, 0, 255, 200, 0, 0, 255])),
-                                      white: try Frame(image: Self.pixels([255, 255, 255, 255, 200, 0, 0, 255])))
+        let photographs = Photographs([try Frame(image: Self.pixels([0, 0, 0, 255, 200, 0, 0, 255])),
+                                       try Frame(image: Self.pixels([255, 255, 255, 255, 200, 0, 0, 255]))])
         async let matted = session.export(shown) { _ in await photographs.next() }
         #expect(try await app.next() == .export(shown))
         try app.send(.showing(ShownComponent(shown, window: window, backdrop: .black)))
@@ -310,9 +370,10 @@ import Testing
         await #expect(throws: RunnerError.self) { try await failure.value }
     }
 
+    /// Frames handed out in order.
     actor Photographs {
         var frames: [Frame]
-        init(black: Frame, white: Frame) { frames = [black, white] }
+        init(_ frames: [Frame]) { self.frames = frames }
         func next() -> Frame { frames.removeFirst() }
     }
 

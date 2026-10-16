@@ -16,7 +16,9 @@ struct CaptureReadiness: Hashable, Sendable {
 /// views drawn for that generation report every condition met, as does every
 /// condition on screen, a sheet's or cover's included, the scene is active,
 /// and on a Mac its window is key. Ready is reported once per `apply`; until
-/// then, what the scene waits for is reported whenever it changes.
+/// then, what the scene waits for is reported whenever it changes. Once the
+/// runner has photographed it, the scene answers with its highlights if it
+/// stayed in front since it was ready, and says it left the front otherwise.
 struct DirectorState: Equatable {
     enum Effect: Equatable {
         /// Show this scene: set it as current and run the app's closure.
@@ -25,6 +27,7 @@ struct DirectorState: Equatable {
         case waiting(SceneRequest, [Waiting.Reason])
         /// Report where the scene's highlights are.
         case highlights(SceneRequest)
+        case leftFront(SceneRequest)
         case failed(SceneRequest, reason: String)
         case quit
     }
@@ -37,6 +40,8 @@ struct DirectorState: Equatable {
     /// What `pending` was last reported waiting for.
     private var reported: [Waiting.Reason]?
     private(set) var hasQuit = false
+    /// Whether the scene has been in front since it was last reported ready.
+    private var stayedInFront = false
     private var readiness = CaptureReadiness(generation: nil, conditionsMet: true)
     private var presentedConditionsMet = true
     private var isActive: Bool
@@ -64,6 +69,7 @@ struct DirectorState: Equatable {
             }
             pending = request
             reported = nil
+            stayedInFront = false
             var effects: [Effect] = []
             if showing != request {
                 showing = request
@@ -71,8 +77,9 @@ struct DirectorState: Equatable {
                 effects.append(.apply(request))
             }
             return effects + evaluate()
-        case .highlights(let request):
-            return showing == request ? [.highlights(request)] : [.failed(request, reason: "\(request) is not on screen")]
+        case .photographed(let request):
+            guard showing == request else { return [.failed(request, reason: "\(request) is not on screen")] }
+            return stayedInFront ? [.highlights(request)] : [.leftFront(request)]
         case .export, .taken:
             // The director's component exporter answers these.
             return []
@@ -105,11 +112,13 @@ struct DirectorState: Equatable {
     mutating func update(active: Bool) -> [Effect] {
         guard requiresActiveScene else { return [] }
         isActive = active
+        if !active { stayedInFront = false }
         return evaluate()
     }
 
     mutating func update(windowKey: Bool) -> [Effect] {
         isWindowKey = windowKey
+        if !windowKey { stayedInFront = false }
         return evaluate()
     }
 
@@ -122,6 +131,7 @@ struct DirectorState: Equatable {
             return [.waiting(pending, reasons)]
         }
         self.pending = nil
+        stayedInFront = true
         return [.ready(pending)]
     }
 

@@ -9,8 +9,12 @@ public import Foundation
 /// each scene it wants, and the app answers `ready` once the scene is on
 /// screen, or `failed`. Until then it says what the scene is `waiting` for
 /// whenever that changes, and the runner brings an app that is not in front
-/// forward. Once the runner has photographed the scene it asks for its
-/// `highlights`, measured as they were photographed.
+/// forward. Once the runner has photographed the scene it says
+/// `photographed`, and the app answers with the scene's `highlights`, measured
+/// as they were photographed, or with `leftFront` when the scene has not been
+/// in front the whole time since it was ready: the system can send a freshly
+/// launched app behind the home screen after it drew. The runner then asks for
+/// the scene again and takes it again.
 ///
 /// The runner sends `export` for each component it wants. On a simulator the
 /// app draws it in process and answers `exported` with the image. On a Mac,
@@ -23,7 +27,7 @@ public import Foundation
 public enum ControlProtocol {
     /// Raised when a message changes shape. The runner refuses an app built
     /// against another version, which would otherwise decode as nonsense.
-    public static let version = 4
+    public static let version = 5
 }
 
 /// A scene, and the variant it is shown with.
@@ -262,6 +266,9 @@ public enum AppMessage: Hashable, Sendable {
     case ready(Ready)
     case waiting(Waiting)
     case highlights(SceneHighlights)
+    /// The scene left the front after it was ready, so what was photographed
+    /// may be something else.
+    case leftFront(SceneRequest)
     case failed(Failure)
     case exported(ExportedComponent)
     case showing(ShownComponent)
@@ -271,8 +278,9 @@ public enum AppMessage: Hashable, Sendable {
 /// What the runner sends.
 public enum RunnerMessage: Hashable, Sendable {
     case apply(SceneRequest)
-    /// Where the scene on screen's highlights are now.
-    case highlights(SceneRequest)
+    /// The scene on screen has been photographed: answered with its
+    /// highlights now, or `leftFront`.
+    case photographed(SceneRequest)
     case export(ComponentRequest)
     /// The component on show has been photographed over its backdrop.
     case taken(ComponentRequest)
@@ -291,6 +299,7 @@ extension AppMessage: Codable {
         case "ready": self = .ready(try Ready(from: decoder))
         case "waiting": self = .waiting(try Waiting(from: decoder))
         case "highlights": self = .highlights(try SceneHighlights(from: decoder))
+        case "leftFront": self = .leftFront(try SceneRequest(from: decoder))
         case "failed": self = .failed(try Failure(from: decoder))
         case "exported": self = .exported(try ExportedComponent(from: decoder))
         case "showing": self = .showing(try ShownComponent(from: decoder))
@@ -314,6 +323,9 @@ extension AppMessage: Codable {
         case .highlights(let highlights):
             try container.encode("highlights", forKey: .type)
             try highlights.encode(to: encoder)
+        case .leftFront(let request):
+            try container.encode("leftFront", forKey: .type)
+            try request.encode(to: encoder)
         case .failed(let failure):
             try container.encode("failed", forKey: .type)
             try failure.encode(to: encoder)
@@ -335,7 +347,7 @@ extension RunnerMessage: Codable {
         let type = try decoder.container(keyedBy: TypeKey.self).decode(String.self, forKey: .type)
         switch type {
         case "apply": self = .apply(try SceneRequest(from: decoder))
-        case "highlights": self = .highlights(try SceneRequest(from: decoder))
+        case "photographed": self = .photographed(try SceneRequest(from: decoder))
         case "export": self = .export(try ComponentRequest(from: decoder))
         case "taken": self = .taken(try ComponentRequest(from: decoder))
         case "quit": self = .quit
@@ -349,8 +361,8 @@ extension RunnerMessage: Codable {
         case .apply(let request):
             try container.encode("apply", forKey: .type)
             try request.encode(to: encoder)
-        case .highlights(let request):
-            try container.encode("highlights", forKey: .type)
+        case .photographed(let request):
+            try container.encode("photographed", forKey: .type)
             try request.encode(to: encoder)
         case .export(let request):
             try container.encode("export", forKey: .type)

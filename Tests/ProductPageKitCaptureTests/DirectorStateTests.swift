@@ -126,8 +126,44 @@ import Testing
 
     @Test func highlightsAreMeasuredForTheSceneOnScreenOnly() {
         var state = launched()
-        #expect(state.receive(.highlights(inbox), knownScenes: scenes) == [.highlights(inbox)])
-        #expect(state.receive(.highlights(detail), knownScenes: scenes) == [.failed(detail, reason: "detail (blue) is not on screen")])
+        _ = state.receive(.apply(inbox), knownScenes: scenes)
+        #expect(state.receive(.photographed(inbox), knownScenes: scenes) == [.highlights(inbox)])
+        #expect(state.receive(.photographed(detail), knownScenes: scenes) == [.failed(detail, reason: "detail (blue) is not on screen")])
+    }
+
+    /// A cold launch can be sent behind the home screen after it drew, and
+    /// the frames then settle on the home screen: the scene says it left the
+    /// front, even when it is back, and is ready again once in front.
+    @Test func aSceneThatLeftTheFrontAfterReadySaysSo() {
+        var state = launched()
+        #expect(state.receive(.apply(inbox), knownScenes: scenes) == [.ready(inbox)])
+        #expect(state.update(active: false) == [])
+        #expect(state.receive(.photographed(inbox), knownScenes: scenes) == [.leftFront(inbox)])
+        #expect(state.receive(.apply(inbox), knownScenes: scenes) == [.waiting(inbox, [.activeScene])])
+        #expect(state.update(active: true) == [.ready(inbox)])
+        #expect(state.receive(.photographed(inbox), knownScenes: scenes) == [.highlights(inbox)])
+
+        _ = state.update(active: false)
+        _ = state.update(active: true)
+        #expect(state.receive(.photographed(inbox), knownScenes: scenes) == [.leftFront(inbox)])
+        #expect(state.receive(.apply(inbox), knownScenes: scenes) == [.ready(inbox)])
+        #expect(state.receive(.photographed(inbox), knownScenes: scenes) == [.highlights(inbox)])
+    }
+
+    @Test func aMacWindowThatLostKeyAfterReadySaysSo() {
+        var state = launched(requiresKeyWindow: true)
+        _ = state.update(windowKey: true)
+        #expect(state.receive(.apply(inbox), knownScenes: scenes) == [.ready(inbox)])
+        _ = state.update(windowKey: false)
+        _ = state.update(windowKey: true)
+        #expect(state.receive(.photographed(inbox), knownScenes: scenes) == [.leftFront(inbox)])
+    }
+
+    /// Photographed before it said ready, it may not have been drawn.
+    @Test func aScenePhotographedBeforeReadyHasNotStayedInFront() {
+        var state = launched()
+        _ = state.receive(.apply(detail), knownScenes: scenes)
+        #expect(state.receive(.photographed(detail), knownScenes: scenes) == [.leftFront(detail)])
     }
 
     @Test func quitEndsTheSession() {
