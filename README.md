@@ -105,7 +105,7 @@ let example = Project(
 Run it from anywhere in the repository:
 
 ```bash
-swift run --package-path Tools/ProductPage productpage --help
+swift run --package-path Tools/ProductPage productpage
 ```
 
 Paths in the configuration are relative to the repository root. The tools
@@ -164,6 +164,15 @@ WindowGroup {
 the credentials.
 
 ## Commands
+
+Run with no arguments in a terminal, `productpage` opens a menu of the
+commands the project can run. Arrow keys move, return chooses, left arrow or
+Escape goes back, and q quits. A command then asks for its options:
+platforms, locales and shots are ticked with space, all of them to start, and
+a push asks whether to show the plan and ask, show it only, or apply it
+straight away. The menu prints the command line before running it, then
+comes back to where it was.
+Outside a terminal, no arguments prints the help.
 
 | Command | Does |
 | --- | --- |

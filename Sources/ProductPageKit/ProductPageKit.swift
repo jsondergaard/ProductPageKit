@@ -32,4 +32,21 @@ struct Root: AsyncParsableCommand {
         subcommands: [MetadataCommand.self, ReleaseCommand.self, ProductsCommand.self, ScreenshotsCommand.self, VideosCommand.self, PagesCommand.self,
                       ReviewCommand.self, ExportCommand.self, CacheCommand.self, DoctorCommand.self]
     )
+
+    /// With no arguments: the menu in a terminal, the help anywhere else.
+    func run() async throws {
+        let session = try Session.get()
+        guard session.console.isInteractive, let terminal = TTY() else { throw CleanExit.helpRequest(self) }
+        await Menu(project: session.project, console: session.console, terminal: terminal, run: Self.execute).start()
+    }
+
+    /// Parses `arguments` and runs the command they name.
+    static func execute(_ arguments: [String]) async throws {
+        var command = try parseAsRoot(arguments)
+        if var command = command as? any AsyncParsableCommand {
+            try await command.run()
+        } else {
+            try command.run()
+        }
+    }
 }
