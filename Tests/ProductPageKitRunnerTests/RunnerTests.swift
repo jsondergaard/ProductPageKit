@@ -54,15 +54,21 @@ import Testing
         #expect(try !Frame(image: image()).isMasked)
     }
 
+    /// It fails, and leaves its last frames and what changed between them.
     @Test func aSceneThatNeverSettlesFails() async throws {
+        let evidence = FileManager.default.temporaryDirectory.appending(path: "FrameStabilityTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: evidence) }
         var marked = 0
-        await #expect(throws: RunnerError.self) {
-            try await FrameStability(maximumFrames: 5).settle("spinner") {
+        let error = await #expect(throws: RunnerError.self) {
+            try await FrameStability(maximumFrames: 5, evidence: evidence).settle("a spinner in en") {
                 marked += 500
                 return try Frame(image: image(marked: marked))
             }
         }
-        #expect(marked == 2500)
+        #expect(marked == 3000)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: evidence.path).sorted()
+                == ["a-spinner-in-en-1.png", "a-spinner-in-en-2.png", "a-spinner-in-en-changed.png"])
+        #expect(error?.description.contains("a-spinner-in-en-changed.png") == true)
     }
 }
 
@@ -211,7 +217,7 @@ import Testing
         let window = WindowInfo(number: 7, frame: CGRect(x: 0, y: 0, width: 2, height: 1))
         let photographs = Photographs(black: try Frame(image: Self.pixels([0, 0, 0, 255, 200, 0, 0, 255])),
                                       white: try Frame(image: Self.pixels([255, 255, 255, 255, 200, 0, 0, 255])))
-        async let matted = session.export(shown) { _ in try await photographs.next() }
+        async let matted = session.export(shown) { _ in await photographs.next() }
         #expect(try await app.next() == .export(shown))
         try app.send(.showing(ShownComponent(shown, window: window, backdrop: .black)))
         #expect(try await app.next() == .taken(shown))
@@ -330,6 +336,24 @@ import Testing
         #expect((written as? [String: Any])?["AppleLanguagesSchemaVersion"] as? Int == 5400)
     }
 
+    /// An iPad left in Windowed Apps draws its app's name by the clock and a
+    /// resize handle in every screenshot's corner.
+    @Test func anIPadsAppsAreSetFullScreenAndItsOtherSettingsKept() throws {
+        let data = FileManager.default.temporaryDirectory.appending(path: "ProductPageKitWindowingTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: data) }
+        let device = Simulators.Device(udid: "A", name: "worker", state: "Shutdown", isAvailable: true,
+                                       deviceTypeIdentifier: nil, dataPath: data.path)
+        try FileManager.default.createDirectory(at: device.springBoardPreferences.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let springBoard: [String: Any] = ["SBShowBatteryPercentage": true]
+        try PropertyListSerialization.data(fromPropertyList: springBoard, format: .binary, options: 0).write(to: device.springBoardPreferences)
+
+        try Simulators().setFullScreenApps(of: device)
+
+        let written = try PropertyListSerialization.propertyList(from: Data(contentsOf: device.springBoardPreferences), format: nil) as? [String: Any]
+        #expect(written?[Simulators.windowedAppsKey] as? Bool == false)
+        #expect(written?["SBShowBatteryPercentage"] as? Bool == true)
+    }
+
     /// The second piece starts when the first ends, and a failure passes
     /// the turn on.
     @Test func turnsRunOneAtATime() async throws {
@@ -371,6 +395,11 @@ import Testing
             Simulator device failed to launch com.example.app.
             Underlying error (domain=NSPOSIXErrorDomain, code=3):
             	Application launch for 'com.example.app' did not return a process handle nor launch error.
+            """)))
+        #expect(Simulators.isDroppedLaunch(failure("""
+            Simulator device failed to launch com.example.app.
+            Underlying error (domain=FBSOpenApplicationServiceErrorDomain, code=3):
+            	Process failed to launch.
             """)))
         #expect(!Simulators.isDroppedLaunch(failure("Simulator device failed to launch com.example.app. The app is not installed.")))
         #expect(!Simulators.isDroppedLaunch(CancellationError()))
@@ -463,3 +492,21 @@ import Testing
     }
 }
 
+
+@Suite struct TestRetryTests {
+    /// A UI test whose app launch the simulator dropped is run again; one
+    /// that failed for any other reason is not.
+    @Test func onlyADroppedLaunchIsRetried() throws {
+        let log = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: log) }
+        try "error: Simulator device failed to launch com.example.app. (Underlying Error: Launchd job spawn failed)"
+            .write(to: log, atomically: true, encoding: .utf8)
+        #expect(ScreenshotRunner.droppedLaunch(in: log))
+        try "error: XCTAssertTrue failed".write(to: log, atomically: true, encoding: .utf8)
+        #expect(!ScreenshotRunner.droppedLaunch(in: log))
+        try "Simulator device failed to launch com.example.app. The app is not installed."
+            .write(to: log, atomically: true, encoding: .utf8)
+        #expect(!ScreenshotRunner.droppedLaunch(in: log))
+        #expect(!ScreenshotRunner.droppedLaunch(in: log.appending(path: "missing")))
+    }
+}

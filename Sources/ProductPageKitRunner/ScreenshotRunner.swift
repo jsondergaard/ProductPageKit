@@ -24,12 +24,15 @@ public struct CaptureReport: Sendable {
 /// 2. Run the project's `before` commands, then build each platform in turn
 ///    into one DerivedData. A platform starts capturing as soon as its build
 ///    is done, while the next one builds.
-/// 3. Simulators: clone the runner's base device once per worker, boot the
-///    clones in their first locale, set the status bar, appearance and text
-///    size, and install. Each worker takes a share of the locales.
-/// 4. Run the review screenshot tests on the first worker, in the primary
-///    locale. They report ready the same way scenes do.
-/// 5. Each locale restarts a simulator in it, unless it is already, then is
+/// 3. Simulators: clone the runner's base device once per worker, and once
+///    more for the screens tests put up, boot the clones, set the status bar,
+///    appearance and text size, and install. Each worker takes a share of the
+///    locales.
+/// 4. Run the tests that put up screens, App Review screenshots among them,
+///    on their own clone in the primary locale, beside the workers. They
+///    report ready the same way scenes do.
+/// 5. Each locale restarts a simulator in it, when the simulators follow the
+///    captured locale and it is not in it already, then is
 ///    one launch for the scenes drawn in process, or one per variant for an
 ///    app that decides its data at launch, plus one per scene that needs a
 ///    cold launch. For each scene: `apply`, wait for `ready`, take frames
@@ -58,6 +61,9 @@ public struct ScreenshotRunner: Sendable {
         if plan.targets.contains(where: { $0.platform.kind == .mac }) { try await MacCapture.prepare() }
         let locks = try plan.targets.map { try Lock(cache.lock($0.platform), purpose: "capture of \($0.platform.name) screenshots") }
         defer { locks.forEach { $0.release() } }
+        defer {
+            if project.build == .deleteAfterRun { try? FileManager.default.removeItem(at: cache.derivedData) }
+        }
         let power = try PowerAssertion(reason: "Capturing \(project.name) screenshots")
         defer { power.release() }
         let files = try await serveFiles()
@@ -73,14 +79,27 @@ public struct ScreenshotRunner: Sendable {
         // simulator platforms take turns: two at once ran CoreSimulator out
         // of memory. The next platform builds, and the Mac captures, meanwhile.
         let simulatorTurns = Turns()
+        // iPhone and iPad build into one products folder, so they share one
+        // build: a second would rewrite the app while the first platform's
+        // simulators install and launch it.
+        var builds: [String: URL] = [:]
         var report = try await withThrowingTaskGroup(of: CaptureReport.self) { group in
             for target in plan.targets {
                 let host = try await Host(target.platform, simulators: simulators)
-                let building = ContinuousClock.now
-                log("Building for \(target.platform.name)")
-                let app = try await build.build(target.platform, destination: host.destination,
-                                                forTesting: !target.tests.isEmpty)
-                log("Built for \(target.platform.name) in \(Self.format(.now - building))")
+                let folder = XcodeBuild.productsFolder(target.platform.kind)
+                let app: URL
+                if let built = builds[folder] {
+                    app = built
+                } else {
+                    let sharing = plan.targets.filter { XcodeBuild.productsFolder($0.platform.kind) == folder }
+                    let names = sharing.map(\.platform.name).joined(separator: " and ")
+                    let building = ContinuousClock.now
+                    log("Building for \(names)")
+                    app = try await build.build(target.platform, destination: host.destination,
+                                                forTesting: sharing.contains { !$0.tests.isEmpty })
+                    log("Built for \(names) in \(Self.format(.now - building))")
+                    builds[folder] = app
+                }
                 group.addTask {
                     guard case .simulator = host else {
                         return try await capture(target, app: app, host: host, build: build, simulators: simulators, clock: clock)
@@ -164,18 +183,30 @@ public struct ScreenshotRunner: Sendable {
             log("\(target.platform.name): \(counted(target.workers.count, "worker")) on \(name)")
             var clones: [String] = []
             do {
-                for worker in target.workers.indices { clones.append(try await simulators.clone(base, worker: worker)) }
+                // Screens a test puts up get a simulator of their own: a test
+                // that drives other apps leaves them, and the way back to
+                // them in the status bar, behind for whatever launches next.
+                let count = target.workers.count + (target.tests.isEmpty ? 0 : 1)
+                for worker in 0..<count { clones.append(try await simulators.clone(base, worker: worker)) }
                 let drawsSensorBar = try await simulators.drawsSensorBar(base)
+                let devices = clones.map { udid in
+                    SimulatorWorker(simulators: simulators, udid: udid, os: os, bundleID: project.bundleID,
+                                    appearance: project.appearance, contentSize: project.contentSize,
+                                    statusBar: target.platform.kind.statusBar,
+                                    systemLocale: project.simulatorLocale == .primary ? project.primaryLocale : nil,
+                                    time: clock, drawsSensorBar: drawsSensorBar)
+                }
                 let report = try await withThrowingTaskGroup(of: CaptureReport.self) { group in
-                    for (index, locales) in target.workers.enumerated() {
-                        let device = SimulatorWorker(simulators: simulators, udid: clones[index], os: os, bundleID: project.bundleID,
-                                                     appearance: project.appearance, contentSize: project.contentSize,
-                                                     statusBar: target.platform.kind.statusBar, time: clock,
-                                                     drawsSensorBar: drawsSensorBar)
+                    for (device, locales) in zip(devices, target.workers) {
                         group.addTask {
                             try await device.prepare(app: app, locale: locales[0])
-                            return try await work(target, locales: locales, tests: index == 0 ? target.tests : [],
-                                                  device: device, build: build)
+                            return try await self.locales(locales, of: target, device: device)
+                        }
+                    }
+                    if let device = devices.dropFirst(target.workers.count).first {
+                        group.addTask {
+                            try await device.prepare(app: app, locale: project.primaryLocale)
+                            return try await tests(target, device: device, build: build)
                         }
                     }
                     var report = CaptureReport()
@@ -192,23 +223,22 @@ public struct ScreenshotRunner: Sendable {
             let window = if case .window(let size) = target.platform.capture { size } else { CGSize?.none }
             log("\(target.platform.name): \(window.map { "\(Int($0.width)) × \(Int($0.height)) window" } ?? "window at its own size")")
             let device = MacDevice(app: app, appearance: project.appearance, windowSize: window)
-            return try await work(target, locales: target.workers[0], tests: target.tests, device: device, build: build)
+            var report = try await tests(target, device: device, build: build)
+            report.merge(try await locales(target.workers[0], of: target, device: device))
+            return report
         }
     }
 
-    /// One worker's test-drawn screens, in the primary locale, then its
-    /// locales, over one listener. The first worker's first locale is the
-    /// primary one unless `--locales` leaves it out, so the tests going first
-    /// saves a restart.
-    private func work(_ target: CapturePlan.Target, locales: [StoreLocale], tests: [TestCapture],
-                      device: some CaptureDevice, build: XcodeBuild) async throws -> CaptureReport {
+    /// The platform's test-drawn screens, in the primary locale, one run of
+    /// each test with its scenes in the order listed.
+    private func tests(_ target: CapturePlan.Target, device: some CaptureDevice, build: XcodeBuild) async throws -> CaptureReport {
+        var report = CaptureReport()
+        guard !target.tests.isEmpty else { return report }
         let listener = try await ControlListener.start()
         defer { listener.stop() }
-        var report = CaptureReport()
-        if !tests.isEmpty { try await device.use(project.primaryLocale) }
-        // One run of each test, its scenes in the order listed.
+        try await device.use(project.primaryLocale)
         var runs: [(test: String, captures: [TestCapture])] = []
-        for capture in tests {
+        for capture in target.tests {
             if let index = runs.firstIndex(where: { $0.test == capture.test }) {
                 runs[index].captures.append(capture)
             } else {
@@ -216,8 +246,8 @@ public struct ScreenshotRunner: Sendable {
             }
         }
         for run in runs {
-            for (capture, file) in try await capture(run.captures, of: run.test, platform: target.platform, device: device,
-                                                     listener: listener, build: build) {
+            for (capture, file) in try await retrying(run.captures, of: run.test, platform: target.platform, device: device,
+                                                      listener: listener, build: build) {
                 if target.reviewScreenshots.contains(where: { $0.capture == capture }) {
                     report.reviewScreenshots.append(file)
                 } else {
@@ -225,6 +255,14 @@ public struct ScreenshotRunner: Sendable {
                 }
             }
         }
+        return report
+    }
+
+    /// One worker's locales, over one listener.
+    private func locales(_ locales: [StoreLocale], of target: CapturePlan.Target, device: some CaptureDevice) async throws -> CaptureReport {
+        let listener = try await ControlListener.start()
+        defer { listener.stop() }
+        var report = CaptureReport()
         for locale in locales {
             try await device.use(locale)
             report.merge(try await capture(target, locale: locale, device: device, listener: listener))
@@ -252,7 +290,7 @@ public struct ScreenshotRunner: Sendable {
                 for shot in planned.shots {
                     let request = SceneRequest(scene: shot.scene, variant: shot.variant)
                     let ready = try await session.show(request)
-                    let frame = try await FrameStability().settle("\(shot) in \(locale.code)", moving: ready.moving,
+                    let frame = try await FrameStability(evidence: cache.logs).settle("\(shot) in \(locale.code)", moving: ready.moving,
                                                                   capture: try await device.frames(for: ready))
                     let file = cache.capture(target.platform, locale, shot)
                     try frame.png.write(to: file, options: .atomic)
@@ -278,7 +316,7 @@ public struct ScreenshotRunner: Sendable {
                         device: some CaptureDevice) async throws -> URL {
         let request = ComponentRequest(name: component.name, state: component.state, variant: component.variant)
         let image = try await session.export(request) { window in
-            try await FrameStability().settle("the component \(component) in \(locale.code)",
+            try await FrameStability(evidence: cache.logs).settle("the component \(component) in \(locale.code)",
                                               capture: try device.frames(ofWindow: window, showing: request))
         }
         let file = cache.component(platform, locale, component)
@@ -308,12 +346,40 @@ public struct ScreenshotRunner: Sendable {
         }
     }
 
+    /// Runs `test` for `captures`, and again for those still missing when it
+    /// ended early because the simulator dropped a launch of the test's own,
+    /// as it drops the runner's.
+    private func retrying(_ captures: [TestCapture], of test: String, platform: Platform, device: some CaptureDevice,
+                          listener: ControlListener, build: XcodeBuild) async throws -> [(TestCapture, URL)] {
+        var taken: [(TestCapture, URL)] = []
+        var attempt = 1
+        while true {
+            let remaining = captures.filter { capture in !taken.contains { $0.0 == capture } }
+            do {
+                try await capture(remaining, of: test, platform: platform, device: device, listener: listener, build: build,
+                                  into: &taken)
+                return taken
+            } catch RunnerError.appExited where attempt < Self.testAttempts
+                && Self.droppedLaunch(in: cache.logs.appending(path: "\(platform.id)-\(Self.logName(test)).log")) {
+                attempt += 1
+                log("  \(test): the simulator dropped a launch; running it again")
+            }
+        }
+    }
+
+    static let testAttempts = 3
+
+    /// Whether a test's log shows the simulator dropping a launch.
+    static func droppedLaunch(in log: URL) -> Bool {
+        (try? String(contentsOf: log, encoding: .utf8)).map(Simulators.isDroppedLaunch) ?? false
+    }
+
     /// Runs `test` once and takes each of `captures`, the scenes it puts up
-    /// itself and reports ready through a `CaptureDirector(host: .test)`. A
-    /// UI test's runner is not the app, so its hello is checked for the
-    /// platform and the scenes alone.
+    /// itself and reports ready through a `CaptureDirector(host: .test)`,
+    /// adding each to `taken` as it is written. A UI test's runner is not the
+    /// app, so its hello is checked for the platform and the scenes alone.
     private func capture(_ captures: [TestCapture], of test: String, platform: Platform, device: some CaptureDevice,
-                         listener: ControlListener, build: XcodeBuild) async throws -> [(TestCapture, URL)] {
+                         listener: ControlListener, build: XcodeBuild, into taken: inout [(TestCapture, URL)]) async throws {
         let mailbox = Mailbox()
         listener.expect(mailbox)
         let settings = device.testSettings(port: listener.port)
@@ -338,11 +404,10 @@ public struct ScreenshotRunner: Sendable {
         do {
             try session.check(bundleID: nil, platform: platform.controlPlatform, scenes: captures.map(\.scene.scene))
             await device.bringToFront()
-            var taken: [(TestCapture, URL)] = []
             for capture in captures {
                 let ready = try await session.show(SceneRequest(scene: capture.scene.scene, variant: capture.scene.variant),
                                                    within: AppSession.testReadyTimeout)
-                let frame = try await FrameStability().settle("\(capture.scene) from \(test)", moving: ready.moving,
+                let frame = try await FrameStability(evidence: cache.logs).settle("\(capture.scene) from \(test)", moving: ready.moving,
                                                               capture: try await device.frames(for: ready))
                 let file = file(for: capture, on: platform)
                 try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -352,7 +417,6 @@ public struct ScreenshotRunner: Sendable {
             }
             await session.quit()
             try await run.value
-            return taken
         } catch {
             run.cancel()
             throw device.diagnose(error)

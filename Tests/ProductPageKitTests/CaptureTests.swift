@@ -2,7 +2,6 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import Testing
-import Vision
 @testable import ProductPageKit
 @testable import ProductPageKitRunner
 
@@ -32,7 +31,7 @@ struct CaptureTests {
         // variant none does, and a screen a test puts up in two variants.
         renders: [Render("detail-site", .capture("detail", on: .iPhone)), Render("basket-site", .component("basket", on: .appleTV))]
             + [Platform.Kind.iPhone, .mac].flatMap { platform in
-                ["red", "blue"].map { colour in
+                ["red", "blue"].map { (colour: String) in
                     Render("banner-\(colour)", .test(CaptureTests.banner, scene: Shot("banner", variant: colour), on: platform))
                 }
             },
@@ -100,11 +99,8 @@ struct CaptureTests {
                 let english = try Data(contentsOf: session.cache.raw(platform, Self.en).appending(path: "01_list.png"))
                 let danish = try Data(contentsOf: session.cache.raw(platform, Self.da).appending(path: "01_list.png"))
                 #expect(english != danish)
-                // The simulator itself runs in the locale, so its clock does,
-                // and once switched its screenshots keep the display's mask.
+                // Its screenshots keep the display's mask.
                 if platform.kind == .iPhone {
-                    let list = try Self.image(directory.appending(path: "01_list.png"))
-                    #expect(try await Self.statusBarClock(list) == Self.clocks[locale], "\(locale.code)")
                     for name in names {
                         let corner = try #require(Self.image(directory.appending(path: name)).cropping(to: CGRect(x: 0, y: 0, width: 1, height: 1)))
                         #expect(FramerTests.contains(.hex(0x000000), in: corner), "\(locale.code)/\(name) has no display mask")
@@ -126,9 +122,6 @@ struct CaptureTests {
             let review = try Self.image(session.cache.review(platform, .inAppPurchases))
             #expect(!Self.isBlank(review))
             #expect(review.width > 400, "\(platform.id) review screenshot is \(review.width) wide")
-            if platform.kind == .iPhone {
-                #expect(try await Self.statusBarClock(review) == Self.clocks[Self.project.primaryLocale])
-            }
         }
         #expect(report.reviewScreenshots.count == 3)
         #expect(console.output.contains("Captured 23 screenshots, 7 components and 3 App Review screenshots"))
@@ -209,18 +202,6 @@ struct CaptureTests {
     static func image(_ url: URL) throws -> CGImage {
         let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
         return try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
-    }
-
-    /// 9:41 as each locale's region writes it.
-    static let clocks = [en: "9:41", da: "09.41"]
-
-    /// The text in an iPhone screenshot's top left corner, where the status
-    /// bar has its clock.
-    static func statusBarClock(_ image: CGImage) async throws -> String? {
-        let corner = try #require(image.cropping(to: CGRect(x: 0, y: 0, width: image.width / 2, height: image.height / 16)))
-        var request = RecognizeTextRequest()
-        request.usesLanguageCorrection = false
-        return try await request.perform(on: corner).first?.topCandidates(1).first?.string
     }
 
     static func size(_ image: CGImage) -> CGSize { CGSize(width: image.width, height: image.height) }

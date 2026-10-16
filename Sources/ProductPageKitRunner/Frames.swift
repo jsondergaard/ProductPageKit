@@ -57,6 +57,9 @@ struct FrameStability {
     var channelThreshold: UInt8 = 2
     /// Frames to try before giving up on a scene that never settles.
     var maximumFrames = 40
+    /// Where a scene that never settles leaves its last two frames and what
+    /// changed between them, or nil to leave nothing.
+    var evidence: URL?
 
     /// - Parameter moving: what moves on purpose, as fractions of the frame
     ///   from its top left, which is left out of the comparison.
@@ -67,7 +70,40 @@ struct FrameStability {
             if frame.png == previous.png || matches(previous.image, frame.image, ignoring: moving) { return frame }
             previous = frame
         }
-        throw RunnerError.unstable(what, frames: maximumFrames)
+        let last = try await capture()
+        throw RunnerError.unstable(what, frames: maximumFrames,
+                                   evidence: try evidence.map { try record(what, previous, last, ignoring: moving, in: $0) })
+    }
+
+    /// Writes `a`, `b` and a map of where they differ: changed pixels red
+    /// over the second frame greyed, what moves on purpose blue.
+    private func record(_ what: String, _ a: Frame, _ b: Frame, ignoring moving: [CGRect], in directory: URL) throws -> URL {
+        let stem = what.filter { $0.isLetter || $0.isNumber || $0 == " " }.replacingOccurrences(of: " ", with: "-")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try a.png.write(to: directory.appending(path: "\(stem)-1.png"))
+        try b.png.write(to: directory.appending(path: "\(stem)-2.png"))
+        if a.image.width == b.image.width, a.image.height == b.image.height,
+           let first = Self.pixels(a.image), var map = Self.pixels(b.image) {
+            let width = a.image.width, height = a.image.height
+            let ignored = moving.map {
+                CGRect(x: $0.minX * CGFloat(width), y: $0.minY * CGFloat(height), width: $0.width * CGFloat(width),
+                       height: $0.height * CGFloat(height)).integral
+            }
+            for row in 0..<height {
+                for column in 0..<width {
+                    let pixel = (row * width + column) * 4
+                    let changed = (0..<3).contains { first[pixel + $0].distance(to: map[pixel + $0]) > channelThreshold }
+                    let grey = UInt8((Int(map[pixel]) + Int(map[pixel + 1]) + Int(map[pixel + 2])) / 9)
+                    let onPurpose = ignored.contains { $0.contains(CGPoint(x: column, y: row)) }
+                    let (red, green, blue): (UInt8, UInt8, UInt8) = changed && !onPurpose ? (255, 0, 0) : onPurpose ? (grey, grey, 160) : (grey, grey, grey)
+                    map[pixel] = red; map[pixel + 1] = green; map[pixel + 2] = blue; map[pixel + 3] = 255
+                }
+            }
+            if let image = CGImage.rgba(map, width: width, height: height) {
+                try Frame(image: image).png.write(to: directory.appending(path: "\(stem)-changed.png"))
+            }
+        }
+        return directory.appending(path: "\(stem)-changed.png")
     }
 
     func matches(_ a: CGImage, _ b: CGImage, ignoring moving: [CGRect] = []) -> Bool {

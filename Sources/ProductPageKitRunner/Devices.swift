@@ -40,6 +40,9 @@ struct SimulatorWorker: CaptureDevice {
     let appearance: Appearance
     let contentSize: ContentSize
     let statusBar: StatusBar
+    /// The locale the simulator stays in whatever it captures, or nil to
+    /// follow each.
+    let systemLocale: StoreLocale?
     /// What `simctl status_bar override --time` is given.
     let time: String
     /// Whether the device draws the Dynamic Island, which a screenshot
@@ -55,7 +58,8 @@ struct SimulatorWorker: CaptureDevice {
         try await simulators.install(app, on: udid)
     }
 
-    /// Nothing when the simulator is in `locale`. A booted one whose status
+    /// Nothing when the simulator is in `locale`, or stays in its
+    /// `systemLocale`. A booted one whose status
     /// bar shows only the time moves to it in place. Otherwise it is shut
     /// down, given the locale, and booted, since the system reads its
     /// language and region at boot. Either way the status bar override is
@@ -65,7 +69,7 @@ struct SimulatorWorker: CaptureDevice {
     /// launch, so it boots once, in the first locale it is given: the primary
     /// one on the worker whose tests show the system's own screens.
     func use(_ locale: StoreLocale) async throws {
-        let preferences = LocalePreferences(locale)
+        let preferences = LocalePreferences(systemLocale ?? locale)
         let device = try await simulators.device(udid)
         if statusBar == .none {
             if !device.isBooted {

@@ -21,6 +21,10 @@ public struct Project: Sendable {
     public var contentSize: ContentSize
     /// What a simulator's status bar clock shows.
     public var statusBarTime: StatusBarTime
+    /// The language and region the simulators run in.
+    public var simulatorLocale: SimulatorLocale
+    /// What a capture run leaves of its build.
+    public var build: BuildRetention
     /// The devices the product page shows, each with its shots. Their App
     /// Store platforms are the versions metadata is written to.
     public var platforms: [Platform]
@@ -52,6 +56,8 @@ public struct Project: Sendable {
         appearance: Appearance = .light,
         contentSize: ContentSize = .large,
         statusBarTime: StatusBarTime = .nineFortyOne,
+        simulatorLocale: SimulatorLocale = .primary,
+        build: BuildRetention = .keep,
         platforms: [Platform],
         reviewScreenshots: [ReviewScreenshot] = [],
         frames: (any FrameTheme)? = nil,
@@ -71,6 +77,8 @@ public struct Project: Sendable {
         self.appearance = appearance
         self.contentSize = contentSize
         self.statusBarTime = statusBarTime
+        self.simulatorLocale = simulatorLocale
+        self.build = build
         self.platforms = platforms
         self.reviewScreenshots = reviewScreenshots
         self.frames = frames
@@ -409,6 +417,28 @@ public enum StatusBarTime: Sendable, Equatable {
     /// shows the time of day itself, such as a programme guide, which the
     /// clock then agrees with.
     case captureStart
+}
+
+/// The language and region a simulator runs in. The app always runs in the
+/// locale it captures, which it is given at launch; this sets the rest: the
+/// status bar's clock, and any screen the system draws.
+public enum SimulatorLocale: Sendable, Equatable {
+    /// The primary locale, for every capture. A simulator never restarts to
+    /// change locale, so a run is quicker.
+    case primary
+    /// The locale being captured, so the clock reads 9:41 in `en` and 09.41
+    /// in `da`. An iPhone moves in place in a few seconds; an iPad, whose
+    /// status bar shows the date, reboots.
+    case captured
+}
+
+/// What a capture run leaves of its build, the largest part of the cache.
+public enum BuildRetention: Sendable, Equatable {
+    /// Kept, so the next run builds only what changed.
+    case keep
+    /// Deleted when the run ends, so the disk holds only captures and what
+    /// is drawn from them; the next run builds from scratch.
+    case deleteAfterRun
 }
 
 /// Dynamic Type sizes, as `simctl ui content_size` names them.

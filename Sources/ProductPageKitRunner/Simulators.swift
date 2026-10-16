@@ -34,6 +34,12 @@ struct Simulators: Sendable {
         var globalPreferences: URL {
             URL(filePath: dataPath).appending(path: "Library/Preferences/.GlobalPreferences.plist")
         }
+
+        /// Where SpringBoard keeps its settings, an iPad's multitasking mode
+        /// among them.
+        var springBoardPreferences: URL {
+            URL(filePath: dataPath).appending(path: "Library/Preferences/com.apple.springboard.plist")
+        }
     }
 
     /// Devices the runner made are named with this, so they are never
@@ -99,17 +105,21 @@ struct Simulators: Sendable {
     }
 
     /// The runner's own device of this type and runtime, made and booted once
-    /// so the clones made from it start past first-boot setup.
+    /// so the clones made from it start past first-boot setup. An iPad's
+    /// apps are full screen in it and its clones.
     func base(_ type: DeviceType, runtime: Runtime) async throws -> String {
         let name = "\(Self.prefix) \(type.name) \(runtime.name)"
+        let udid: String
         if let existing = try await devices().first(where: { $0.runtime == runtime.identifier && $0.device.name == name }) {
-            if existing.device.state != "Shutdown" { try await shutdown(existing.device.udid) }
-            return existing.device.udid
+            udid = existing.device.udid
+            if existing.device.state != "Shutdown" { try await shutdown(udid) }
+        } else {
+            udid = String(decoding: try await simctl(["create", name, type.identifier, runtime.identifier]), as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            try await boot(udid)
+            try await shutdown(udid)
         }
-        let udid = String(decoding: try await simctl(["create", name, type.identifier, runtime.identifier]), as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        try await boot(udid)
-        try await shutdown(udid)
+        if type.productFamily == "iPad" { try setFullScreenApps(of: try await device(udid)) }
         return udid
     }
 
@@ -189,7 +199,22 @@ struct Simulators: Sendable {
     /// system reads both only at boot.
     func setLocale(_ locale: LocalePreferences, of device: Device) throws {
         let file = device.globalPreferences
-        let preferences = locale.applied(to: try Self.preferences(file))
+        try Self.write(locale.applied(to: try Self.preferences(file)), to: file)
+    }
+
+    /// SpringBoard's setting for iPadOS's Windowed Apps, the default since
+    /// iPadOS 26, which draws the app's name beside the status bar clock and
+    /// a resize handle in the window's corner. Off, apps are full screen.
+    static let windowedAppsKey = "SBMedusaMultitaskingEnabled"
+
+    /// Puts an iPad's apps full screen. Only while it is shut down, as with
+    /// `setLocale`: SpringBoard reads the mode at boot.
+    func setFullScreenApps(of device: Device) throws {
+        let file = device.springBoardPreferences
+        try Self.write(try Self.preferences(file).merging([Self.windowedAppsKey: false]) { _, new in new }, to: file)
+    }
+
+    private static func write(_ preferences: [String: Any], to file: URL) throws {
         try PropertyListSerialization.data(fromPropertyList: preferences, format: .binary, options: 0)
             .write(to: file, options: .atomic)
     }
@@ -236,10 +261,19 @@ struct Simulators: Sendable {
     /// than once in a row.
     static let launchAttempts = 4
 
-    /// A launch the simulator dropped: it answered with neither a process
-    /// nor a reason, and nothing is running. Asked again, it starts.
+    /// A launch the simulator dropped: it answered with no process and no
+    /// reason, or said only that the process failed to start, as it does
+    /// straight after a boot. Asked again, it starts. A launch refused for a
+    /// reason, such as an app not installed, is not one.
     static func isDroppedLaunch(_ error: Error) -> Bool {
-        (error as? ShellError)?.stderr.contains("did not return a process handle nor launch error") == true
+        (error as? ShellError).map { isDroppedLaunch($0.stderr) } ?? false
+    }
+
+    /// Whether `output`, from `simctl` or from XCTest launching an app,
+    /// reports a dropped launch.
+    static func isDroppedLaunch(_ output: String) -> Bool {
+        ["did not return a process handle nor launch error", "Process failed to launch", "Launchd job spawn failed"]
+            .contains { output.contains($0) }
     }
 
     func terminate(_ bundleID: String, on udid: String) async {

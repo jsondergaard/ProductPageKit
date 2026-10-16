@@ -21,7 +21,7 @@ public enum RunnerError: Error, CustomStringConvertible {
     case noWindow(String)
     case windowNotFound(Int)
     case unreadableCapture
-    case unstable(String, frames: Int)
+    case unstable(String, frames: Int, evidence: URL?)
     case testDidNotConnect(String, log: URL)
     case componentFailed(String, String)
     case componentWindowOffMac(String)
@@ -72,8 +72,9 @@ public enum RunnerError: Error, CustomStringConvertible {
             "Window \(number) is not on screen."
         case .unreadableCapture:
             "A capture could not be read as an image."
-        case .unstable(let what, let frames):
-            "\(what) was still changing after \(frames) frames. Hold `.captureReady` false until it settles."
+        case .unstable(let what, let frames, let evidence):
+            "\(what) was still changing after \(frames) frames. Hold `.captureReady` false until it settles, or mark what moves on purpose `.captureMoving()`."
+                + (evidence.map { " What changed between the last two frames is in red in \($0.path)." } ?? "")
         case .testDidNotConnect(let test, let log):
             "The test \(test) finished without connecting. Run it only when `CaptureHost.test.isControlled`, and give it a `CaptureDirector(host: .test)`. Its output is in \(log.path)"
         case .componentFailed(let component, let reason):

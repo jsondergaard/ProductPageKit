@@ -207,9 +207,14 @@ one that cannot, such as playing video, is marked `.captureMoving()` and left
 out of the comparison.
 
 - iPhone, iPad and Apple TV run on cloned simulators, one for every four
-  cores and at most one per locale. An iPhone or iPad runs in the language
-  and region it captures, with 9:41 in its status bar; an Apple TV boots once,
-  in the first locale.
+  cores and at most one per locale, with 9:41 in the status bar.
+- The app runs in each locale it captures. The simulator itself, which
+  draws the status bar and the system's own screens, stays in the primary
+  locale unless `simulatorLocale: .captured` moves it to each in turn. That
+  shows 09.41 in a Danish clock, but costs a reboot per locale on an iPad.
+- `build: .deleteAfterRun` deletes the build when a run ends, so the cache
+  keeps only captures and what is drawn from them. The next run builds from
+  scratch.
 - The Mac needs Screen Recording permission for the terminal, and the screen
   unlocked.
 - Shots are named from their place in the platform's list: `01_inbox.png`. A

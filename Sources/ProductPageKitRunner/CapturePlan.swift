@@ -59,7 +59,8 @@ public struct CapturePlan: Sendable {
         }
 
         /// Every screen a test puts up: the App Review screenshots, then the
-        /// renders'. All run on the first worker, in the primary locale.
+        /// renders'. All run in the primary locale, on a simulator of their
+        /// own beside the workers, or on the Mac before its locales.
         public var tests: [TestCapture] {
             reviewScreenshots.map(\.capture) + (primary?.tests ?? [])
         }

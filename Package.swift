@@ -75,7 +75,9 @@ let package = Package(
         .testTarget(name: "ProductPageKitCaptureTests", dependencies: ["ProductPageKitCapture", "ProductPageKitControl", "ProductPageKitCore"]),
         // Golden image comparison, shared by the test targets that draw.
         .target(name: "ProductPageKitTestSupport", path: "Tests/Support", swiftSettings: settings),
-        .testTarget(name: "ProductPageKitFramesTests", dependencies: ["ProductPageKitFrames", "ProductPageKitTestSupport"]),
+        // `Golden` reads its images from beside the test's source, not a bundle.
+        .testTarget(name: "ProductPageKitFramesTests", dependencies: ["ProductPageKitFrames", "ProductPageKitTestSupport"],
+                    exclude: ["Golden"]),
         .testTarget(name: "ProductPageKitCoreTests", dependencies: ["ProductPageKitCore", "ProductPageKitFrames"]),
         .testTarget(
             name: "ProductPageKitRunnerTests",
@@ -98,7 +100,8 @@ let package = Package(
                 "ProductPageKitASC",
                 .product(name: "HTTPTypes", package: "swift-http-types"),
                 .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
-            ]
+            ],
+            exclude: ["Golden"]
         ),
     ]
 )
