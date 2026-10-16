@@ -26,11 +26,11 @@ import Testing
 
     @Test func aNewSceneIsAppliedAndWaitsForItsOwnGeneration() {
         var state = launched()
-        #expect(state.receive(.apply(detail), knownScenes: scenes) == [.apply(detail)])
+        #expect(state.receive(.apply(detail), knownScenes: scenes) == [.apply(detail), .waiting(detail, [.views])])
         #expect(state.generation == 1)
         // The previous scene's views still report generation 0.
         #expect(state.update(readiness: CaptureReadiness(generation: 0, conditionsMet: true)) == [])
-        #expect(state.update(readiness: CaptureReadiness(generation: 1, conditionsMet: false)) == [])
+        #expect(state.update(readiness: CaptureReadiness(generation: 1, conditionsMet: false)) == [.waiting(detail, [.conditions])])
         #expect(state.update(readiness: CaptureReadiness(generation: 1, conditionsMet: true)) == [.ready(detail)])
         // Reported once.
         #expect(state.update(readiness: CaptureReadiness(generation: 1, conditionsMet: true)) == [])
@@ -41,7 +41,7 @@ import Testing
     @Test func aConditionInACoverHoldsTheSceneBack() {
         var state = launched()
         _ = state.update(presentedConditionsMet: false)
-        #expect(state.receive(.apply(inbox), knownScenes: scenes) == [])
+        #expect(state.receive(.apply(inbox), knownScenes: scenes) == [.waiting(inbox, [.conditions])])
         #expect(state.update(presentedConditionsMet: true) == [.ready(inbox)])
     }
 
@@ -64,20 +64,37 @@ import Testing
     @Test func anInactiveSceneIsNotReady() {
         var state = launched()
         _ = state.update(active: false)
-        #expect(state.receive(.apply(inbox), knownScenes: scenes) == [])
+        #expect(state.receive(.apply(inbox), knownScenes: scenes) == [.waiting(inbox, [.activeScene])])
         #expect(state.update(active: true) == [.ready(inbox)])
+    }
+
+    /// Said once for each change, so the runner brings the app forward
+    /// again only when it has lost the front again.
+    @Test func whatASceneWaitsForIsSaidWhenItChanges() {
+        var state = DirectorState(showing: inbox, requiresActiveScene: true, requiresKeyWindow: false)
+        #expect(state.receive(.apply(inbox), knownScenes: scenes) == [.waiting(inbox, [.views, .activeScene])])
+        #expect(state.update(readiness: CaptureReadiness(generation: 0, conditionsMet: false)) == [.waiting(inbox, [.conditions, .activeScene])])
+        #expect(state.update(active: true) == [.waiting(inbox, [.conditions])])
+        #expect(state.update(active: false) == [.waiting(inbox, [.conditions, .activeScene])])
+        #expect(state.update(presentedConditionsMet: false) == [])
+        #expect(state.update(presentedConditionsMet: true) == [])
+        #expect(state.update(active: true) == [.waiting(inbox, [.conditions])])
+        #expect(state.update(readiness: CaptureReadiness(generation: 0, conditionsMet: true)) == [.ready(inbox)])
+        // Nothing more until the next apply.
+        #expect(state.update(active: false) == [])
+        #expect(state.receive(.apply(inbox), knownScenes: scenes) == [.waiting(inbox, [.activeScene])])
     }
 
     @Test func aTestHostedViewHasNoScenePhaseToWaitFor() {
         var state = DirectorState(showing: nil, requiresActiveScene: false, requiresKeyWindow: false)
         _ = state.update(active: false)
-        #expect(state.receive(.apply(inbox), knownScenes: scenes) == [.apply(inbox)])
+        #expect(state.receive(.apply(inbox), knownScenes: scenes) == [.apply(inbox), .waiting(inbox, [.views])])
         #expect(state.update(readiness: CaptureReadiness(generation: 1, conditionsMet: true)) == [.ready(inbox)])
     }
 
     @Test func aMacWaitsForItsWindowToBeKey() {
         var state = launched(requiresKeyWindow: true)
-        #expect(state.receive(.apply(inbox), knownScenes: scenes) == [])
+        #expect(state.receive(.apply(inbox), knownScenes: scenes) == [.waiting(inbox, [.keyWindow])])
         #expect(state.update(windowKey: true) == [.ready(inbox)])
     }
 

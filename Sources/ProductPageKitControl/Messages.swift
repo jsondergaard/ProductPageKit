@@ -7,8 +7,10 @@ public import Foundation
 ///
 /// The app says `hello` when it connects. The runner then sends `apply` for
 /// each scene it wants, and the app answers `ready` once the scene is on
-/// screen, or `failed`. Once the runner has photographed the scene it asks
-/// for its `highlights`, measured as they were photographed.
+/// screen, or `failed`. Until then it says what the scene is `waiting` for
+/// whenever that changes, and the runner brings an app that is not in front
+/// forward. Once the runner has photographed the scene it asks for its
+/// `highlights`, measured as they were photographed.
 ///
 /// The runner sends `export` for each component it wants. On a simulator the
 /// app draws it in process and answers `exported` with the image. On a Mac,
@@ -21,7 +23,7 @@ public import Foundation
 public enum ControlProtocol {
     /// Raised when a message changes shape. The runner refuses an app built
     /// against another version, which would otherwise decode as nonsense.
-    public static let version = 3
+    public static let version = 4
 }
 
 /// A scene, and the variant it is shown with.
@@ -131,6 +133,44 @@ public struct Ready: Codable, Hashable, Sendable {
     public var request: SceneRequest { SceneRequest(scene: scene, variant: variant) }
 }
 
+/// What a scene asked for waits on before it is ready.
+public struct Waiting: Codable, Hashable, Sendable {
+    public enum Reason: String, Codable, Sendable, CustomStringConvertible {
+        /// The views drawn for the scene, after `apply` replaced the last one's.
+        case views
+        /// A `.captureReady` condition that does not hold yet.
+        case conditions
+        /// The scene to become active: the app is not in front.
+        case activeScene
+        /// On a Mac, the window to become key: another app is in front.
+        case keyWindow
+
+        /// Whether bringing the app to the front is what it waits for.
+        public var needsFront: Bool { self == .activeScene || self == .keyWindow }
+
+        public var description: String {
+            switch self {
+            case .views: "its views to be drawn"
+            case .conditions: "its `.captureReady` conditions to hold"
+            case .activeScene: "its scene to become active"
+            case .keyWindow: "its window to become key"
+            }
+        }
+    }
+
+    public var scene: String
+    public var variant: String?
+    public var reasons: [Reason]
+
+    public init(_ request: SceneRequest, reasons: [Reason]) {
+        scene = request.scene
+        variant = request.variant
+        self.reasons = reasons
+    }
+
+    public var request: SceneRequest { SceneRequest(scene: scene, variant: variant) }
+}
+
 /// Where a scene's views marked with `.captureHighlight()` are.
 public struct SceneHighlights: Codable, Hashable, Sendable {
     public var scene: String
@@ -220,6 +260,7 @@ public struct ComponentFailure: Codable, Hashable, Sendable {
 public enum AppMessage: Hashable, Sendable {
     case hello(Hello)
     case ready(Ready)
+    case waiting(Waiting)
     case highlights(SceneHighlights)
     case failed(Failure)
     case exported(ExportedComponent)
@@ -248,6 +289,7 @@ extension AppMessage: Codable {
         switch type {
         case "hello": self = .hello(try Hello(from: decoder))
         case "ready": self = .ready(try Ready(from: decoder))
+        case "waiting": self = .waiting(try Waiting(from: decoder))
         case "highlights": self = .highlights(try SceneHighlights(from: decoder))
         case "failed": self = .failed(try Failure(from: decoder))
         case "exported": self = .exported(try ExportedComponent(from: decoder))
@@ -266,6 +308,9 @@ extension AppMessage: Codable {
         case .ready(let ready):
             try container.encode("ready", forKey: .type)
             try ready.encode(to: encoder)
+        case .waiting(let waiting):
+            try container.encode("waiting", forKey: .type)
+            try waiting.encode(to: encoder)
         case .highlights(let highlights):
             try container.encode("highlights", forKey: .type)
             try highlights.encode(to: encoder)

@@ -276,6 +276,12 @@ struct Simulators: Sendable {
             .contains { output.contains($0) }
     }
 
+    /// Brings the running app to the front, as it was. Launching an app that
+    /// is running starts no other instance.
+    func activate(_ bundleID: String, on udid: String) async {
+        _ = try? await simctl(["launch", udid, bundleID])
+    }
+
     func terminate(_ bundleID: String, on udid: String) async {
         _ = try? await simctl(["terminate", udid, bundleID])
     }

@@ -24,8 +24,8 @@ protocol CaptureDevice: Sendable {
     func frames(ofWindow window: WindowInfo, showing component: ComponentRequest) throws -> @Sendable () async throws -> Frame
     /// Ends an app that would not quit, or one a failure left running.
     func end(_ pid: Int32) async
-    /// Asks for the app to come forward once it has said hello. The ready
-    /// signal, which on a Mac waits for a key window, is what checks it did.
+    /// Asks for the app to come forward, when a scene waits for it to be in
+    /// front. The ready signal is what checks it came.
     func bringToFront() async
     /// The cause behind a failure, when the device knows a likelier one.
     func diagnose(_ error: any Error) -> any Error
@@ -118,8 +118,11 @@ struct SimulatorWorker: CaptureDevice {
         await simulators.terminate(bundleID, on: udid)
     }
 
-    /// A simulator's app is in front once launched.
-    func bringToFront() async {}
+    /// A launch can land behind the home screen, while the system is still
+    /// taking down the instance before it.
+    func bringToFront() async {
+        await simulators.activate(bundleID, on: udid)
+    }
 
     func diagnose(_ error: any Error) -> any Error { error }
 }

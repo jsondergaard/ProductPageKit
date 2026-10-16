@@ -12,6 +12,9 @@ import Testing
         #expect(highlights == #"{"scene":"inbox","type":"highlights"}"# + "\n")
         let export = String(decoding: try LineCodec.encode(RunnerMessage.export(ComponentRequest(name: "sources", state: "1"))), as: UTF8.self)
         #expect(export == #"{"name":"sources","state":"1","type":"export"}"# + "\n")
+        let waiting = String(decoding: try LineCodec.encode(AppMessage.waiting(Waiting(SceneRequest(scene: "inbox"), reasons: [.activeScene]))),
+                             as: UTF8.self)
+        #expect(waiting == #"{"reasons":["activeScene"],"scene":"inbox","type":"waiting"}"# + "\n")
     }
 
     @Test func everyRunnerMessageSurvivesTheWire() throws {
@@ -41,6 +44,7 @@ import Testing
                          variantsRelaunch: true)),
             .ready(Ready(SceneRequest(scene: "inbox"), window: WindowInfo(number: 7, frame: CGRect(x: 1, y: 2, width: 800, height: 600)))),
             .ready(Ready(SceneRequest(scene: "inbox", variant: "pro"), window: nil)),
+            .waiting(Waiting(SceneRequest(scene: "inbox", variant: "pro"), reasons: [.views, .conditions, .activeScene, .keyWindow])),
             .highlights(SceneHighlights(SceneRequest(scene: "inbox"), rects: [CGRect(x: 0.1, y: 0.25, width: 0.8, height: 0.125)])),
             .failed(Failure(SceneRequest(scene: "inbox"), reason: "no fixture\nfor it")),
             .exported(ExportedComponent(ComponentRequest(name: "sources"), png: Data([0x89, 0x50, 0x4E, 0x47]))),

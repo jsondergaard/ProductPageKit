@@ -117,8 +117,8 @@ import Testing
 @Suite struct MailboxTests {
     @Test func eventsArriveInOrderAndAWaitEndsAtItsDeadline() async throws {
         let mailbox = Mailbox()
-        await mailbox.post(.closed)
-        await mailbox.post(.exited)
+        mailbox.post(.closed)
+        mailbox.post(.exited)
         guard case .closed = try await mailbox.next(within: .seconds(1)) else { Issue.record("expected closed"); return }
         guard case .exited = try await mailbox.next(within: .seconds(1)) else { Issue.record("expected exited"); return }
         #expect(try await mailbox.next(within: .milliseconds(50)) == nil)
@@ -143,6 +143,11 @@ import Testing
             connection.send(content: try LineCodec.encode(message), completion: .idempotent)
         }
 
+        /// Ends the stream after what was sent, as an app that exits does.
+        func finish() {
+            connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .idempotent)
+        }
+
         func next() async throws -> RunnerMessage {
             if !received.isEmpty { return received.removeFirst() }
             let data: Data = try await withCheckedThrowingContinuation { continuation in
@@ -152,6 +157,36 @@ import Testing
             }
             received += try decoder.feed(data)
             return try await next()
+        }
+    }
+
+    /// An app says hello as soon as it connects. Posted from tasks, a busy
+    /// runner once saw the hello before the connection and dropped it.
+    @Test func aConnectionArrivesBeforeWhatItCarriesAndClosesAfter() async throws {
+        let listener = try await ControlListener.start()
+        defer { listener.stop() }
+        for attempt in 0..<50 {
+            let mailbox = Mailbox()
+            listener.expect(mailbox)
+            let app = FakeApp(port: listener.port)
+            defer { app.connection.cancel() }
+            try app.send(.hello(Hello(pid: Int32(attempt), bundleID: "com.example.app", platform: .iOS, scenes: [],
+                                      variantsRelaunch: false)))
+            try app.send(.ready(Ready(SceneRequest(scene: "inbox"), window: nil)))
+            app.finish()
+            var events: [String] = []
+            while let event = try await mailbox.next(within: .seconds(5)) {
+                switch event {
+                case .connected: events.append("connected")
+                case .message(.hello): events.append("hello")
+                case .message(.ready): events.append("ready")
+                case .message: events.append("another message")
+                case .closed: events.append("closed")
+                case .exited: events.append("exited")
+                }
+                if case .closed = event { break }
+            }
+            #expect(events == ["connected", "hello", "ready", "closed"], "attempt \(attempt)")
         }
     }
 
@@ -165,7 +200,7 @@ import Testing
                           scenes: [SceneDescription(name: "inbox", relaunch: false), SceneDescription(name: "broken", relaunch: false)],
                           variantsRelaunch: false)
         try app.send(.hello(hello))
-        let session = try await AppSession(mailbox: mailbox, pid: getpid(), describedAs: "the fake app")
+        let session = try await AppSession(mailbox: mailbox, pid: getpid(), describedAs: "the fake app") {}
         #expect(session.hello == hello)
 
         let inbox = SceneRequest(scene: "inbox")
@@ -195,6 +230,44 @@ import Testing
         #expect(await quit)
     }
 
+    /// A launch can land behind the home screen, and a Mac app behind
+    /// whatever is in front: the scene says it waits for the front, and the
+    /// runner brings the app forward each time it does.
+    @Test func aSceneWaitingForTheFrontHasItsAppBroughtForward() async throws {
+        let listener = try await ControlListener.start()
+        defer { listener.stop() }
+        let mailbox = Mailbox()
+        listener.expect(mailbox)
+        let app = FakeApp(port: listener.port)
+        try app.send(.hello(Hello(pid: getpid(), bundleID: "com.example.app", platform: .tvOS, scenes: [], variantsRelaunch: true)))
+        let fronts = Fronts()
+        let session = try await AppSession(mailbox: mailbox, pid: getpid(), describedAs: "the fake app") { await fronts.add() }
+
+        let detail = SceneRequest(scene: "detail", variant: "blue")
+        async let ready = session.show(detail)
+        #expect(try await app.next() == .apply(detail))
+        try app.send(.waiting(Waiting(detail, reasons: [.conditions, .activeScene])))
+        try app.send(.waiting(Waiting(detail, reasons: [.conditions])))
+        try app.send(.waiting(Waiting(detail, reasons: [.activeScene])))
+        try app.send(.ready(Ready(detail, window: nil)))
+        #expect(try await ready.request == detail)
+        #expect(await fronts.count == 2)
+
+        // A scene that never gets the front says so when the runner gives up.
+        let settings = SceneRequest(scene: "settings")
+        let late = Task { try await session.show(settings, within: .milliseconds(300)) }
+        #expect(try await app.next() == .apply(settings))
+        try app.send(.waiting(Waiting(settings, reasons: [.keyWindow])))
+        let error = await #expect(throws: RunnerError.self) { try await late.value }
+        #expect(error?.description == "Gave up waiting for the fake app to draw settings, which was waiting for its window to become key.")
+        #expect(await fronts.count == 3)
+    }
+
+    actor Fronts {
+        var count = 0
+        func add() { count += 1 }
+    }
+
     /// A simulator app sends its component; a Mac app shows it over black,
     /// then white, and the runner photographs each and mattes the pair.
     @Test func componentsArriveDrawnOrShown() async throws {
@@ -204,7 +277,7 @@ import Testing
         listener.expect(mailbox)
         let app = FakeApp(port: listener.port)
         try app.send(.hello(Hello(pid: getpid(), bundleID: "com.example.app", platform: .macOS, scenes: [], variantsRelaunch: true)))
-        let session = try await AppSession(mailbox: mailbox, pid: getpid(), describedAs: "the fake app")
+        let session = try await AppSession(mailbox: mailbox, pid: getpid(), describedAs: "the fake app") {}
         let tile = FrameStabilityTests().image(marked: 0)
 
         let drawn = ComponentRequest(name: "sources")

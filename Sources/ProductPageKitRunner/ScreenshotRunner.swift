@@ -335,10 +335,10 @@ public struct ScreenshotRunner: Sendable {
         let settings = device.settings(port: listener.port, scene: scene, variant: variant)
         let pid = try await device.launch(LocalePreferences(locale).launchArguments + settings.arguments)
         do {
-            let session = try await AppSession(mailbox: mailbox, pid: pid, describedAs: "\(project.name) on \(device.name)")
+            let session = try await AppSession(mailbox: mailbox, pid: pid, describedAs: "\(project.name) on \(device.name)",
+                                               bringToFront: device.bringToFront)
             try session.check(bundleID: project.bundleID, platform: target.platform.controlPlatform,
                               scenes: target.shots(in: locale).map(\.scene))
-            await device.bringToFront()
             return (session, pid)
         } catch {
             await device.end(pid)
@@ -385,13 +385,14 @@ public struct ScreenshotRunner: Sendable {
         let settings = device.testSettings(port: listener.port)
         let output = cache.logs.appending(path: "\(platform.id)-\(Self.logName(test)).log")
         let run = Task {
-            defer { Task { await mailbox.post(.exited) } }
+            defer { mailbox.post(.exited) }
             try await build.test(test, platform: platform, destination: device.testDestination,
                                  environment: settings.environment, log: output)
         }
         let session: AppSession
         do {
-            session = try await AppSession(mailbox: mailbox, pid: nil, describedAs: "the test \(test)")
+            session = try await AppSession(mailbox: mailbox, pid: nil, describedAs: "the test \(test)",
+                                           bringToFront: device.bringToFront)
         } catch RunnerError.appExited {
             // `xcodebuild` ended first: its own failure says why, or the test
             // ran without connecting.
@@ -403,7 +404,6 @@ public struct ScreenshotRunner: Sendable {
         }
         do {
             try session.check(bundleID: nil, platform: platform.controlPlatform, scenes: captures.map(\.scene.scene))
-            await device.bringToFront()
             for capture in captures {
                 let ready = try await session.show(SceneRequest(scene: capture.scene.scene, variant: capture.scene.variant),
                                                    within: AppSession.testReadyTimeout)

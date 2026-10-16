@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Synchronization
 import ProductPageKitControl
 
 /// What can happen to a launched app while the runner waits on it.
@@ -12,26 +13,42 @@ enum AppEvent: Sendable {
 
 /// Events in arrival order, and one waiter at a time with a deadline.
 ///
+/// Posting is synchronous, so events posted from one queue arrive in the
+/// order they happened there: a connection before what it carries, and what
+/// it carries before it closes.
+///
 /// A deadline is how long the runner is willing to wait for something the app
 /// announces. It never stands in for the announcement.
-actor Mailbox {
-    private var buffer: [AppEvent] = []
-    private var waiter: (id: UUID, continuation: CheckedContinuation<AppEvent?, Never>, deadline: Task<Void, Never>)?
+final class Mailbox: Sendable {
+    private struct Waiter {
+        let id: UUID
+        let continuation: CheckedContinuation<AppEvent?, Never>
+        let deadline: Task<Void, Never>
+    }
+
+    private struct State {
+        var buffer: [AppEvent] = []
+        var waiter: Waiter?
+    }
+
+    private let state = Mutex(State())
 
     func post(_ event: AppEvent) {
-        if let waiter {
-            self.waiter = nil
-            waiter.deadline.cancel()
-            waiter.continuation.resume(returning: event)
-        } else {
-            buffer.append(event)
+        let waiter = state.withLock { state in
+            guard let waiter = state.waiter else {
+                state.buffer.append(event)
+                return Waiter?.none
+            }
+            state.waiter = nil
+            return waiter
         }
+        waiter?.deadline.cancel()
+        waiter?.continuation.resume(returning: event)
     }
 
     /// The next event, or nil when `timeout` passes first. Throws when the
     /// task is cancelled.
     func next(within timeout: Duration) async throws -> AppEvent? {
-        if !buffer.isEmpty { return buffer.removeFirst() }
         let id = UUID()
         let event = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
@@ -39,34 +56,51 @@ actor Mailbox {
                     guard (try? await Task.sleep(for: timeout)) != nil else { return }
                     self.expire(id)
                 }
-                waiter = (id, continuation, deadline)
+                let buffered = state.withLock { state in
+                    guard state.buffer.isEmpty else { return Optional(state.buffer.removeFirst()) }
+                    state.waiter = Waiter(id: id, continuation: continuation, deadline: deadline)
+                    return nil
+                }
+                if let buffered {
+                    deadline.cancel()
+                    continuation.resume(returning: buffered)
+                }
             }
         } onCancel: {
-            Task { await self.expire(id) }
+            expire(id)
         }
         try Task.checkCancellation()
         return event
     }
 
     private func expire(_ id: UUID) {
-        guard let waiter, waiter.id == id else { return }
-        self.waiter = nil
-        waiter.deadline.cancel()
-        waiter.continuation.resume(returning: nil)
+        let waiter = state.withLock { state in
+            guard let waiter = state.waiter, waiter.id == id else { return Waiter?.none }
+            state.waiter = nil
+            return waiter
+        }
+        waiter?.deadline.cancel()
+        waiter?.continuation.resume(returning: nil)
     }
 }
 
 /// The runner's end of one app's control connection.
+///
+/// Everything it posts, from announcing itself to closing, is posted on its
+/// queue as it happens.
 final class RunnerConnection: Sendable {
     private let connection: NWConnection
     private let queue: DispatchQueue
 
+    /// Posts `.connected` before the connection starts, so nothing it
+    /// receives can arrive ahead of it. Called on `queue`.
     init(_ connection: NWConnection, queue: DispatchQueue, mailbox: Mailbox) {
         self.connection = connection
         self.queue = queue
+        mailbox.post(.connected(self))
         connection.stateUpdateHandler = { state in
             switch state {
-            case .failed, .cancelled: Task { await mailbox.post(.closed) }
+            case .failed, .cancelled: mailbox.post(.closed)
             default: break
             }
         }
@@ -87,14 +121,11 @@ final class RunnerConnection: Sendable {
     private static func receive(_ connection: NWConnection, decoder: LineDecoder<AppMessage>, mailbox: Mailbox) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: lineReadSize) { data, _, isComplete, error in
             var decoder = decoder
-            let messages = (data.flatMap { try? decoder.feed($0) }) ?? []
-            Task {
-                for message in messages { await mailbox.post(.message(message)) }
-                if isComplete || error != nil {
-                    connection.cancel()
-                } else {
-                    receive(connection, decoder: decoder, mailbox: mailbox)
-                }
+            for message in (data.flatMap { try? decoder.feed($0) }) ?? [] { mailbox.post(.message(message)) }
+            if isComplete || error != nil {
+                connection.cancel()
+            } else {
+                receive(connection, decoder: decoder, mailbox: mailbox)
             }
         }
     }
@@ -139,8 +170,7 @@ final class ControlListener: @unchecked Sendable {
         let control = ControlListener(listener: listener, port: port, queue: queue)
         listener.newConnectionHandler = { [unowned control] connection in
             guard let mailbox = control.mailbox else { return connection.cancel() }
-            let wrapped = RunnerConnection(connection, queue: queue, mailbox: mailbox)
-            Task { await mailbox.post(.connected(wrapped)) }
+            _ = RunnerConnection(connection, queue: queue, mailbox: mailbox)
         }
         return control
     }
@@ -161,10 +191,10 @@ final class ProcessWatch: Sendable {
 
     init(pid: Int32, mailbox: Mailbox) {
         source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .global())
-        source.setEventHandler { Task { await mailbox.post(.exited) } }
+        source.setEventHandler { mailbox.post(.exited) }
         source.activate()
         // A process that ended before the source was armed never fires it.
-        if kill(pid, 0) != 0, errno == ESRCH { Task { await mailbox.post(.exited) } }
+        if kill(pid, 0) != 0, errno == ESRCH { mailbox.post(.exited) }
     }
 
     func cancel() {

@@ -7,13 +7,15 @@ import ProductPageKitControl
 ///
 /// Every wait ends on something the app does (connecting, `ready`, `failed`,
 /// closing, exiting) or on a deadline that turns into an error naming what
-/// never happened.
+/// never happened. A scene waiting for the app to be in front has it
+/// brought forward.
 final class AppSession: Sendable {
     let hello: Hello
     private let mailbox: Mailbox
     private let connection: RunnerConnection
     private let watch: ProcessWatch?
     private let describedAs: String
+    private let bringToFront: @Sendable () async -> Void
 
     /// How long an app may take to connect after it starts, and to draw a
     /// scene after `apply`. Generous: they bound a hang, not a launch.
@@ -34,7 +36,9 @@ final class AppSession: Sendable {
     ///   is watched, and its hello must carry it. A test host started by
     ///   `xcodebuild` is matched by its hello alone, and whoever started it
     ///   posts `.exited` when `xcodebuild` ends.
-    init(mailbox: Mailbox, pid: Int32?, describedAs: String) async throws {
+    /// - Parameter bringToFront: brings the app forward when a scene waits
+    ///   for it to be in front.
+    init(mailbox: Mailbox, pid: Int32?, describedAs: String, bringToFront: @escaping @Sendable () async -> Void) async throws {
         let watch = pid.map { ProcessWatch(pid: $0, mailbox: mailbox) }
         var connection: RunnerConnection?
         while true {
@@ -52,6 +56,7 @@ final class AppSession: Sendable {
                 self.connection = connection
                 self.watch = watch
                 self.describedAs = describedAs
+                self.bringToFront = bringToFront
                 return
             case .message:
                 continue
@@ -116,19 +121,28 @@ final class AppSession: Sendable {
     }
 
     /// Sends `message` and waits for the answer `match` picks out, or the
-    /// app's failure to give it.
+    /// app's failure to give it. A deadline that passes names what the scene
+    /// last said it was waiting for.
     private func ask<Answer>(_ message: RunnerMessage, about request: SceneRequest, to verb: (do: String, did: String),
                              within timeout: Duration = readyTimeout, match: (AppMessage) -> Answer?) async throws -> Answer {
         try connection.send(message)
+        var waitingFor: [Waiting.Reason] = []
         while true {
             guard let event = try await mailbox.next(within: timeout) else {
-                throw RunnerError.timedOut("\(describedAs) to \(verb.do) \(request)")
+                let waiting = waitingFor.isEmpty ? "" : ", which was waiting for \(waitingFor.map(\.description).joined(separator: " and "))"
+                throw RunnerError.timedOut("\(describedAs) to \(verb.do) \(request)\(waiting)")
             }
             switch event {
             case .message(let message):
                 if let answer = match(message) { return answer }
-                if case .failed(let failure) = message, failure.request == request {
+                switch message {
+                case .failed(let failure) where failure.request == request:
                     throw RunnerError.sceneFailed(request.description, failure.reason)
+                case .waiting(let waiting) where waiting.request == request:
+                    waitingFor = waiting.reasons
+                    if waitingFor.contains(where: \.needsFront) { await bringToFront() }
+                default:
+                    continue
                 }
             case .closed, .exited:
                 throw RunnerError.appExited(describedAs, before: "it \(verb.did) \(request)")
