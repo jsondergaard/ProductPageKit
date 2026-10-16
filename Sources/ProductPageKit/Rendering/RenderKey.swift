@@ -39,11 +39,19 @@ struct RenderKey {
     }()
 }
 
-/// Reads the captions a render draws, and collects what is missing or shown
-/// in the source language.
+/// What stops one screenshot or video from being drawn in a locale.
+struct RenderProblem<Item: Hashable & Sendable>: CustomStringConvertible, Sendable {
+    let item: Item
+    /// What is missing or wrong: `no iPhone 6.9" capture of list`.
+    let reason: String
+    /// The reason with what it stops, for the command line.
+    let description: String
+}
+
+/// Reads the captions a render draws, and collects the lines shown in the
+/// source language.
 struct CaptionReader {
     let copy: StoreCopy
-    private(set) var problems: [String] = []
     /// `screenshot.inbox.headline · da`
     private(set) var untranslated: [String] = []
 
@@ -51,13 +59,17 @@ struct CaptionReader {
         self.copy = copy
     }
 
-    /// The caption, or nil after noting that its headline is missing.
-    mutating func caption(_ subject: CaptionSubject, locale: StoreLocale) -> Caption? {
+    /// The caption, or why there is none: its headline is missing.
+    mutating func caption(_ subject: CaptionSubject, locale: StoreLocale) -> Result<Caption, MissingHeadline> {
         guard let (caption, missing) = copy.caption(subject, locale: locale) else {
-            problems.append("\(Field.caption(subject, .headline).key) has no \(copy.project.primaryLocale.code) value")
-            return nil
+            return .failure(MissingHeadline(
+                description: "\(Field.caption(subject, .headline).key) has no \(copy.project.primaryLocale.code) value"))
         }
         untranslated += missing.map { "\($0.key) · \(locale.code)" }
-        return caption
+        return .success(caption)
+    }
+
+    struct MissingHeadline: Error, CustomStringConvertible {
+        let description: String
     }
 }

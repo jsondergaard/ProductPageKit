@@ -422,6 +422,17 @@ import Testing
         #expect(HTTPServer.Response.byteRange("items=0-1", length: 100) == nil)
     }
 
+    @Test func splitsThePathFromItsQuery() {
+        let request = HTTPServer.Request(method: "GET", path: "/api/screenshots?strip=ios&locale=pt%2DBR&empty=", headers: [:],
+                                         body: Data())
+        #expect(request.route == "/api/screenshots")
+        #expect(request.query("strip") == "ios")
+        #expect(request.query("locale") == "pt-BR")
+        #expect(request.query("empty") == "")
+        #expect(request.query("position") == nil)
+        #expect(HTTPServer.Request(method: "GET", path: "/", headers: [:], body: Data()).route == "/")
+    }
+
     /// Serves `bytes` as one file over the loopback.
     private func serving(_ bytes: Data) async throws -> (HTTPServer, URL) {
         let file = FileManager.default.temporaryDirectory.appending(path: "served-\(UUID().uuidString).bin")

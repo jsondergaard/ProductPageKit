@@ -185,6 +185,33 @@ import ProductPageKitTestSupport
             "warning: screenshot.list.subline · da is not translated, so the frame shows the source language"))
     }
 
+    /// The review page frames what it can; the command stops for the rest.
+    @Test func framesWhatItCanAndNamesWhatIsMissing() async throws {
+        let fixture = try Fixture(themes: .frames)
+        try fixture.writeCaptures()
+        try FileManager.default.removeItem(at: fixture.cache.raw(fixture.project.platforms[0], fixture.da).appending(path: "02_list.png"))
+        let framer = Framer(copy: try fixture.copy, cache: fixture.cache) { _ in }
+        let report = try await framer.frame(platforms: fixture.project.platforms, locales: fixture.project.locales)
+        #expect(report.screenshots.count == 5)
+        #expect(report.problems.map(\.item) == [FramedItem(FrameSubject("list", on: .iPhone), locale: fixture.da)])
+        #expect(report.problems.map(\.description) == ["no iPhone 6.9\" capture of list in da, for the iPhone 6.9\" list screenshot"])
+        #expect(try fixture.files(in: fixture.cache.framed).count == 5)
+
+        let error = await #expect(throws: Stopped.self) { try await frame(fixture) }
+        #expect(error?.description.hasPrefix("Not every screenshot could be framed:\n  no iPhone 6.9\" capture of list in da") == true)
+    }
+
+    /// Framing some shots leaves the others' frames in the cache.
+    @Test func framingSomeShotsKeepsTheRest() async throws {
+        let fixture = try Fixture(themes: .frames)
+        try fixture.writeCaptures()
+        let all = try await frame(fixture)
+        let framer = Framer(copy: try fixture.copy, cache: fixture.cache) { _ in }
+        let one = try await framer.frame([FrameSubject("list", on: .iPhone)], locales: [fixture.da])
+        #expect(one.screenshots.map(\.url) == all.screenshots.filter { $0.shot == "list" && $0.locale == fixture.da }.map(\.url))
+        #expect(try fixture.files(in: fixture.cache.framed) == all.screenshots.map(\.url.lastPathComponent).sorted())
+    }
+
     @Test func aShotWithoutAHeadlineStops() async throws {
         let fixture = try Fixture(themes: .frames)
         try fixture.writeCaptures()

@@ -159,12 +159,17 @@ enum Commands {
         guard !checks.contains(where: { $0.status == .failed }) else { throw ExitCode.failure }
     }
 
-    /// Frames every listed shot of `platforms` in `locales` into the cache.
+    /// Frames every listed shot of `platforms` in `locales` into the cache,
+    /// and stops when any could not be framed.
     @discardableResult
     static func frameScreenshots(_ session: Session, platforms: [Platform], locales: [StoreLocale]) async throws -> Framer.Report {
         let console = session.console
         let report = try await Framer(copy: try session.copy(), cache: session.cache) { console.print($0) }
             .frame(platforms: platforms, locales: locales)
+        guard report.problems.isEmpty else {
+            throw Stopped(description: "Not every screenshot could be framed:\n" + report.problems.map { "  \($0)" }.joined(separator: "\n")
+                          + "\n`productpage screenshots capture` takes the captures; the catalog holds the captions.")
+        }
         announce(session, untranslated: report.untranslated, in: "frame", done: report.drawn, of: report.screenshots.count,
                noun: "screenshot", verb: "framed")
         return report

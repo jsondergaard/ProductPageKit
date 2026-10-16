@@ -372,22 +372,35 @@ the name.
 
 ## Review
 
-`productpage review` serves a page on 127.0.0.1 and opens it. For each locale
-it lays the copy out like the product page, with:
+`productpage review` serves a page on 127.0.0.1 and opens it. Its sidebar
+lists:
 
-- the character count against Apple's cap, and `metadata check`'s results
-- what changed since the last commit, word by word
-- what differs from App Store Connect, on request
-- each key's guidance
-- an edit box per value, and Approve for a translation that needs review
-- the screenshots, framed as the page loads, in a strip per platform or one
-  position across every locale, each with its caption
-- the header and search videos, marked out of date when their caption or
-  captures changed since they were rendered
+- Copy: the product page, search keywords, What's New one release at a
+  time, and the App Review notes
+- Screenshots: each platform's screenshots, and each custom page with its
+  promotional text and screenshots
+- Videos: the header and search videos with their captions
+- Changes: every value changed since the last commit, the other locales
+  with changes, and on request what differs from App Store Connect
+- Checks: `metadata check`'s results, each linked to its value
+
+The header picks the locale and counts the translations in each that need
+review. Every value shows its character count against Apple's cap, and its
+key's guidance on request. A translation sits beside the source language's
+text, with Approve when it needs review. Comparing with the last commit or
+with App Store Connect marks each value that differs and shows the
+difference word by word.
+
+Screenshots are framed when they are first shown, a platform in one locale
+or one position across every locale. A screenshot that cannot be framed
+names the capture it lacks. A video is marked out of date when its caption
+or captures changed since it was rendered.
 
 Edits save to the catalog at once, and an edited caption shows in its frame.
-Changes made in Xcode or by an agent appear within two seconds. The page
-makes no external requests.
+Changes made in Xcode or by an agent appear within two seconds. The address
+names the locale, section and screenshot, so the back button and bookmarks
+work. The page follows the system's light or dark appearance, fits a phone's
+width, and makes no external requests.
 
 ## Custom product pages
 
