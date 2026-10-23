@@ -46,6 +46,23 @@ import Testing
         #expect(frame.png == frames[3].png)
     }
 
+    /// A view in a cover mounts after the app says ready, so where it moves is
+    /// asked again once two frames differ.
+    @Test func settlingAsksAgainWhereWhatMovesIsWhenFramesDiffer() async throws {
+        let frames = try [image(marked: 5000), image(marked: 3000)].map(Frame.init(image:))
+        var taken = 0, asked = 0
+        let frame = try await FrameStability().settle("a video in en", remeasuring: {
+            asked += 1
+            return [CGRect(x: 0, y: 0, width: 1, height: 1)]
+        }, capture: {
+            defer { taken += 1 }
+            return frames[taken]
+        })
+        #expect(taken == 2)
+        #expect(asked == 1)
+        #expect(frame.png == frames[1].png)
+    }
+
     /// Straight after the simulator's bridge restarts, its screenshots come
     /// without the display's mask, which blacks the corners.
     @Test func aScreenshotWithItsCornersMaskedIsComposedAsUsual() throws {
@@ -243,6 +260,24 @@ import Testing
         #expect(process.isRunning)
         process.terminate()
         #expect(await quit.value)
+    }
+
+    @Test func movingViewsAreAskedForOfTheSceneOnScreen() async throws {
+        let listener = try await ControlListener.start()
+        defer { listener.stop() }
+        let mailbox = Mailbox()
+        listener.expect(mailbox)
+        let app = FakeApp(port: listener.port)
+        try app.send(.hello(Hello(pid: getpid(), bundleID: "com.example.app", platform: .iOS, scenes: [], variantsRelaunch: false)))
+        let session = try await AppSession(mailbox: mailbox, pid: getpid(), describedAs: "the fake app") {}
+        let inbox = SceneRequest(scene: "inbox")
+        let rects = [CGRect(x: 0, y: 0.1, width: 1, height: 0.8)]
+        async let moving = session.moving(inbox)
+        #expect(try await app.next() == .measureMoving(inbox))
+        // A stale answer for another scene is not this one's.
+        try app.send(.moving(SceneMoving(SceneRequest(scene: "other"), rects: [])))
+        try app.send(.moving(SceneMoving(inbox, rects: rects)))
+        #expect(try await moving == rects)
     }
 
     /// The system can send a freshly launched app behind the home screen

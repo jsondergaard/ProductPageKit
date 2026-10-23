@@ -63,11 +63,19 @@ struct FrameStability {
 
     /// - Parameter moving: what moves on purpose, as fractions of the frame
     ///   from its top left, which is left out of the comparison.
-    func settle(_ what: String, moving: [CGRect] = [], capture: () async throws -> Frame) async throws -> Frame {
+    /// - Parameter remeasuring: asks the app where what moves is now, when two
+    ///   frames differ: a view can mount after the app said ready.
+    func settle(_ what: String, moving: [CGRect] = [], remeasuring: (() async throws -> [CGRect])? = nil,
+                capture: () async throws -> Frame) async throws -> Frame {
+        var moving = moving
         var previous = try await capture()
         for _ in 1..<maximumFrames {
             let frame = try await capture()
             if frame.png == previous.png || matches(previous.image, frame.image, ignoring: moving) { return frame }
+            if let remeasuring {
+                moving = try await remeasuring()
+                if matches(previous.image, frame.image, ignoring: moving) { return frame }
+            }
             previous = frame
         }
         let last = try await capture()

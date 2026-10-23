@@ -19,10 +19,16 @@ import Testing
         #expect(waiting == #"{"reasons":["activeScene"],"scene":"inbox","type":"waiting"}"# + "\n")
     }
 
+    @Test func movingViewsSurviveTheWire() throws {
+        let moving = AppMessage.moving(SceneMoving(SceneRequest(scene: "inbox"), rects: [CGRect(x: 0.1, y: 0.2, width: 0.5, height: 0.25)]))
+        var decoder = LineDecoder<AppMessage>()
+        #expect(try decoder.feed(try LineCodec.encode(moving)) == [moving])
+    }
+
     @Test func everyRunnerMessageSurvivesTheWire() throws {
         let messages: [RunnerMessage] = [
             .apply(SceneRequest(scene: "library", variant: "pro")), .photographed(SceneRequest(scene: "inbox")),
-            .export(ComponentRequest(name: "sources", variant: "pro")), .taken(ComponentRequest(name: "sources")), .quit,
+            .measureMoving(SceneRequest(scene: "inbox", variant: "pro")), .export(ComponentRequest(name: "sources", variant: "pro")), .taken(ComponentRequest(name: "sources")), .quit,
         ]
         var decoder = LineDecoder<RunnerMessage>()
         #expect(try decoder.feed(try messages.map(LineCodec.encode).reduce(Data(), +)) == messages)

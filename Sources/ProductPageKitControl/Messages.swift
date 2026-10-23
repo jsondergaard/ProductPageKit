@@ -27,7 +27,7 @@ public import Foundation
 public enum ControlProtocol {
     /// Raised when a message changes shape. The runner refuses an app built
     /// against another version, which would otherwise decode as nonsense.
-    public static let version = 5
+    public static let version = 6
 }
 
 /// A scene, and the variant it is shown with.
@@ -192,6 +192,23 @@ public struct SceneHighlights: Codable, Hashable, Sendable {
     public var request: SceneRequest { SceneRequest(scene: scene, variant: variant) }
 }
 
+/// Where a scene's views marked with `.captureMoving()` are now: views mount
+/// after the scene is ready, so the runner asks again when frames differ.
+public struct SceneMoving: Codable, Hashable, Sendable {
+    public var scene: String
+    public var variant: String?
+    /// Fractions of the screen or window, from its top left.
+    public var rects: [CGRect]
+
+    public init(_ request: SceneRequest, rects: [CGRect]) {
+        scene = request.scene
+        variant = request.variant
+        self.rects = rects
+    }
+
+    public var request: SceneRequest { SceneRequest(scene: scene, variant: variant) }
+}
+
 public struct Failure: Codable, Hashable, Sendable {
     public var scene: String
     public var variant: String?
@@ -266,6 +283,7 @@ public enum AppMessage: Hashable, Sendable {
     case ready(Ready)
     case waiting(Waiting)
     case highlights(SceneHighlights)
+    case moving(SceneMoving)
     /// The scene left the front after it was ready, so what was photographed
     /// may be something else.
     case leftFront(SceneRequest)
@@ -281,6 +299,8 @@ public enum RunnerMessage: Hashable, Sendable {
     /// The scene on screen has been photographed: answered with its
     /// highlights now, or `leftFront`.
     case photographed(SceneRequest)
+    /// Asks where the scene's moving views are now, answered with `moving`.
+    case measureMoving(SceneRequest)
     case export(ComponentRequest)
     /// The component on show has been photographed over its backdrop.
     case taken(ComponentRequest)
@@ -299,6 +319,7 @@ extension AppMessage: Codable {
         case "ready": self = .ready(try Ready(from: decoder))
         case "waiting": self = .waiting(try Waiting(from: decoder))
         case "highlights": self = .highlights(try SceneHighlights(from: decoder))
+        case "moving": self = .moving(try SceneMoving(from: decoder))
         case "leftFront": self = .leftFront(try SceneRequest(from: decoder))
         case "failed": self = .failed(try Failure(from: decoder))
         case "exported": self = .exported(try ExportedComponent(from: decoder))
@@ -323,6 +344,9 @@ extension AppMessage: Codable {
         case .highlights(let highlights):
             try container.encode("highlights", forKey: .type)
             try highlights.encode(to: encoder)
+        case .moving(let moving):
+            try container.encode("moving", forKey: .type)
+            try moving.encode(to: encoder)
         case .leftFront(let request):
             try container.encode("leftFront", forKey: .type)
             try request.encode(to: encoder)
@@ -348,6 +372,7 @@ extension RunnerMessage: Codable {
         switch type {
         case "apply": self = .apply(try SceneRequest(from: decoder))
         case "photographed": self = .photographed(try SceneRequest(from: decoder))
+        case "measureMoving": self = .measureMoving(try SceneRequest(from: decoder))
         case "export": self = .export(try ComponentRequest(from: decoder))
         case "taken": self = .taken(try ComponentRequest(from: decoder))
         case "quit": self = .quit
@@ -363,6 +388,9 @@ extension RunnerMessage: Codable {
             try request.encode(to: encoder)
         case .photographed(let request):
             try container.encode("photographed", forKey: .type)
+            try request.encode(to: encoder)
+        case .measureMoving(let request):
+            try container.encode("measureMoving", forKey: .type)
             try request.encode(to: encoder)
         case .export(let request):
             try container.encode("export", forKey: .type)

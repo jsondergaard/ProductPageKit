@@ -197,6 +197,8 @@ public final class CaptureDirector<Scene: CaptureScene> {
                 connection?.send(.waiting(Waiting(request, reasons: reasons)))
             case .highlights(let request):
                 connection?.send(.highlights(SceneHighlights(request, rects: highlightFractions)))
+            case .moving(let request):
+                connection?.send(.moving(SceneMoving(request, rects: movingFractions)))
             case .leftFront(let request):
                 connection?.send(.leftFront(request))
             case .failed(let request, let reason):

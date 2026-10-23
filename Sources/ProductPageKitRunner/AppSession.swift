@@ -97,6 +97,14 @@ final class AppSession: Sendable {
         throw RunnerError.leftFront(describedAs, request: request.description, attempts: Self.photographAttempts)
     }
 
+    /// Where the scene's moving views are now: the ones in a cover mount after
+    /// the app says ready, so the frame check asks again when frames differ.
+    func moving(_ request: SceneRequest) async throws -> [CGRect] {
+        try await ask(.measureMoving(request), about: request, to: (do: "measure", did: "measured")) {
+            if case .moving(let moving) = $0, moving.request == request { moving.rects } else { nil }
+        }
+    }
+
     /// The component, with nothing around it. A Mac app shows it in a window
     /// over black, then over white, and `photograph` takes each; anything
     /// else draws it itself.

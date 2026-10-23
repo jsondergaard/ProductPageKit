@@ -288,9 +288,10 @@ public struct ScreenshotRunner: Sendable {
                                                                         device: device, listener: listener)
             do {
                 for shot in planned.shots {
-                    let (frame, highlights) = try await session.photograph(SceneRequest(scene: shot.scene, variant: shot.variant)) {
-                        try await FrameStability(evidence: cache.logs).settle("\(shot) in \(locale.code)", moving: $0.moving,
-                                                                          capture: try await device.frames(for: $0))
+                    let (frame, highlights) = try await session.photograph(SceneRequest(scene: shot.scene, variant: shot.variant)) { ready in
+                        try await FrameStability(evidence: cache.logs).settle("\(shot) in \(locale.code)", moving: ready.moving,
+                                                                          remeasuring: { try await session.moving(ready.request) },
+                                                                          capture: try await device.frames(for: ready))
                     }
                     let file = cache.capture(target.platform, locale, shot)
                     try frame.png.write(to: file, options: .atomic)
@@ -407,9 +408,10 @@ public struct ScreenshotRunner: Sendable {
             for capture in captures {
                 let (frame, highlights) = try await session.photograph(
                     SceneRequest(scene: capture.scene.scene, variant: capture.scene.variant), within: AppSession.testReadyTimeout
-                ) {
-                    try await FrameStability(evidence: cache.logs).settle("\(capture.scene) from \(test)", moving: $0.moving,
-                                                                      capture: try await device.frames(for: $0))
+                ) { ready in
+                    try await FrameStability(evidence: cache.logs).settle("\(capture.scene) from \(test)", moving: ready.moving,
+                                                                      remeasuring: { try await session.moving(ready.request) },
+                                                                      capture: try await device.frames(for: ready))
                 }
                 let file = file(for: capture, on: platform)
                 try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)

@@ -27,6 +27,8 @@ struct DirectorState: Equatable {
         case waiting(SceneRequest, [Waiting.Reason])
         /// Report where the scene's highlights are.
         case highlights(SceneRequest)
+        /// Report where the scene's moving views are.
+        case moving(SceneRequest)
         case leftFront(SceneRequest)
         case failed(SceneRequest, reason: String)
         case quit
@@ -80,6 +82,9 @@ struct DirectorState: Equatable {
         case .photographed(let request):
             guard showing == request else { return [.failed(request, reason: "\(request) is not on screen")] }
             return stayedInFront ? [.highlights(request)] : [.leftFront(request)]
+        case .measureMoving(let request):
+            guard showing == request else { return [.failed(request, reason: "\(request) is not on screen")] }
+            return [.moving(request)]
         case .export, .taken:
             // The director's component exporter answers these.
             return []

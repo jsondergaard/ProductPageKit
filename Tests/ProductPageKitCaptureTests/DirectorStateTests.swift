@@ -131,6 +131,13 @@ import Testing
         #expect(state.receive(.photographed(detail), knownScenes: scenes) == [.failed(detail, reason: "detail (blue) is not on screen")])
     }
 
+    @Test func movingViewsAreMeasuredForTheSceneOnScreenOnly() {
+        var state = launched()
+        _ = state.receive(.apply(inbox), knownScenes: scenes)
+        #expect(state.receive(.measureMoving(inbox), knownScenes: scenes) == [.moving(inbox)])
+        #expect(state.receive(.measureMoving(detail), knownScenes: scenes) == [.failed(detail, reason: "detail (blue) is not on screen")])
+    }
+
     /// A cold launch can be sent behind the home screen after it drew, and
     /// the frames then settle on the home screen: the scene says it left the
     /// front, even when it is back, and is ready again once in front.
