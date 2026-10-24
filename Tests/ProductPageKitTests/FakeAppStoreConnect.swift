@@ -191,6 +191,7 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
         "subscriptionLocalizations": ("subscriptionLocalizations", "subscription"),
         "planAvailabilities": ("subscriptionPlanAvailabilities", "subscription"),
         "prices": ("subscriptionPrices", "subscription"),
+        "introductoryOffers": ("subscriptionIntroductoryOffers", "subscription"),
         "appCustomProductPages": ("appCustomProductPages", "app"),
         "inAppPurchasesV2": ("inAppPurchases", "app"),
         "inAppPurchaseLocalizations": ("inAppPurchaseLocalizations", "inAppPurchaseV2"),
@@ -489,7 +490,7 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
         attributes.removeValue(forKey: "bytes")
         attributes.removeValue(forKey: "territories")
         var object: [String: Any] = ["type": resource.type, "id": resource.id, "attributes": attributes]
-        if ["subscriptionPrices", "subscriptionPricePoints", "inAppPurchasePrices"].contains(resource.type) {
+        if ["subscriptionPrices", "subscriptionPricePoints", "inAppPurchasePrices", "subscriptionIntroductoryOffers"].contains(resource.type) {
             object["relationships"] = resource.relationships.mapValues { ["data": ["type": $0.type, "id": $0.id]] }
         }
         return object

@@ -32,6 +32,9 @@ public enum StoreKitConfiguration {
                         familyShareable: subscription.familySharable,
                         groupNumber: subscription.level,
                         internalID: ids.product(subscription.productID),
+                        introductoryOffer: subscription.introductoryOffer.map {
+                            IntroductoryOffer(internalID: IDs.offer(subscription.productID), subscriptionPeriod: $0.duration.period)
+                        },
                         localizations: locales.compactMap { locale in
                             subscription.localizations[locale.code].map {
                                 Localization(description: $0.description, displayName: $0.name, locale: locale.localeIdentifier)
@@ -109,6 +112,13 @@ public enum StoreKitConfiguration {
             defer { nextGroup += 1 }
             groups[name] = String(nextGroup)
             return String(nextGroup)
+        }
+
+        /// An offer's id, from its product's: an offer has nothing of its own
+        /// in the catalogue for a previous file to key it by.
+        static func offer(_ productID: String) -> String {
+            SHA256.hash(data: Data("\(productID).introductoryOffer".utf8)).prefix(4)
+                .map { String(format: "%02X", $0) }.joined()
         }
 
         mutating func product(_ productID: String) -> String {
@@ -216,11 +226,20 @@ public enum StoreKitConfiguration {
         let locale: String
     }
 
+    /// A free trial: the only kind the catalogue has.
+    private struct IntroductoryOffer: Encodable {
+        let internalID: String
+        let numberOfPeriods = 1
+        let paymentMode = "free"
+        let subscriptionPeriod: String
+    }
+
     private struct Product: Encodable {
         let displayPrice: String
         let familyShareable: Bool
         let groupNumber: Int
         let internalID: String
+        let introductoryOffer: IntroductoryOffer?
         let localizations: [Localization]
         let productID: String
         let recurringSubscriptionPeriod: String
@@ -241,7 +260,11 @@ public enum StoreKitConfiguration {
             try container.encode(familyShareable, forKey: .familyShareable)
             try container.encode(groupNumber, forKey: .groupNumber)
             try container.encode(internalID, forKey: .internalID)
-            try container.encodeNil(forKey: .introductoryOffer)
+            if let introductoryOffer {
+                try container.encode(introductoryOffer, forKey: .introductoryOffer)
+            } else {
+                try container.encodeNil(forKey: .introductoryOffer)
+            }
             try container.encode(localizations, forKey: .localizations)
             try container.encode(productID, forKey: .productID)
             try container.encode(recurringSubscriptionPeriod, forKey: .recurringSubscriptionPeriod)

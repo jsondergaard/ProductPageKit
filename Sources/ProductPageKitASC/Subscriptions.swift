@@ -67,6 +67,17 @@ public struct PricePoint: Equatable, Sendable {
     public let territory: String?
 }
 
+/// A subscription's introductory offer in one territory.
+public struct IntroductoryOffer: Equatable, Sendable {
+    public let id: String
+    public let territory: String?
+    /// `FREE_TRIAL`, `PAY_AS_YOU_GO` or `PAY_UP_FRONT`.
+    public let mode: String?
+    /// `ONE_WEEK`, `ONE_MONTH` and so on.
+    public let duration: String?
+    public let numberOfPeriods: Int?
+}
+
 /// An in-app product's App Review screenshot.
 public struct ProductReviewScreenshot: Equatable, Sendable {
     public let id: String
@@ -317,6 +328,43 @@ extension AppStoreConnect {
                 ),
                 _type: .subscriptionPrices
             ))))).created
+        }
+    }
+
+    // MARK: - Introductory offers
+
+    public func introductoryOffers(subscriptionID: String) async throws -> [IntroductoryOffer] {
+        try await all { cursor in
+            let page = try await client.subscriptionsIntroductoryOffersGetToManyRelated(.init(
+                path: .init(id: subscriptionID), query: .init(limit: 200, include: [.territory], cursor: cursor)
+            )).ok.body.json
+            return (page.data.map {
+                IntroductoryOffer(
+                    id: $0.id, territory: $0.relationships?.territory?.data?.id,
+                    mode: $0.attributes?.offerMode, duration: $0.attributes?.duration,
+                    numberOfPeriods: $0.attributes?.numberOfPeriods
+                )
+            }, page.links.next)
+        }
+    }
+
+    /// A free trial of `duration` for new subscribers in `territory`.
+    public func createFreeTrial(subscriptionID: String, territory: String, duration: String) async throws {
+        _ = try await call {
+            try await client.subscriptionIntroductoryOffersCreateInstance(.init(body: .json(.init(data: .init(
+                attributes: .init(duration: duration, numberOfPeriods: 1, offerMode: "FREE_TRIAL"),
+                relationships: .init(
+                    subscription: .init(data: .init(id: subscriptionID, _type: .subscriptions)),
+                    territory: .init(data: .init(id: territory, _type: .territories))
+                ),
+                _type: .subscriptionIntroductoryOffers
+            ))))).created
+        }
+    }
+
+    public func deleteIntroductoryOffer(id: String) async throws {
+        _ = try await call {
+            try await client.subscriptionIntroductoryOffersDeleteInstance(.init(path: .init(id: id))).noContent
         }
     }
 

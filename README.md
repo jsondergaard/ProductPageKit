@@ -188,7 +188,7 @@ Outside a terminal, no arguments prints the help.
 | `release new <version>` | Adds What's New for a version, empty in every locale. |
 | `review` | Opens the copy, screenshots and videos in the browser for reviewing and editing. |
 | `products check` | Checks the product catalogue. |
-| `products push` | Makes the in-app products match the catalogue: groups, subscriptions, one-time purchases, names, availability, prices, App Review screenshots and server notification URLs. |
+| `products push` | Makes the in-app products match the catalogue: groups, subscriptions, one-time purchases, names, availability, prices, free trials, App Review screenshots and server notification URLs. |
 | `products storekit` | Writes the StoreKit configuration file from the catalogue. |
 | `export <dir>` | Copies the framed screenshots, the videos and the renders out of the cache. |
 | `cache size`, `cache prune` | Shows what the cache holds; deletes the build, its logs, and files nothing points to. |
@@ -486,6 +486,11 @@ values with `ProductSource.catalogue(ProductCatalogue(...))`.
   `price` and localizations.
 - `"familySharable": true` turns on Family Sharing. App Store Connect never
   turns it off again, so a catalogue that drops it gets a warning.
+- `"introductoryOffer": {"duration": "ONE_WEEK"}` gives new subscribers a
+  free trial of that length in every territory, and writes it to the StoreKit
+  file. Free trials are the only kind. An offer of another kind or length is
+  replaced, and offers App Store Connect has without one in the catalogue are
+  reported, not removed.
 - Products App Store Connect has and the catalogue does not are reported,
   never removed.
 

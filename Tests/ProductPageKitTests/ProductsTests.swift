@@ -175,6 +175,31 @@ import ProductPageKitASC
         #expect(again.console.output.contains("warning: com.example.old is in App Store Connect and not in the catalogue"))
     }
 
+    /// The free trial goes to every territory, once, and an offer of another
+    /// kind is replaced rather than left to contradict it.
+    @Test func aFreeTrialReachesEveryTerritoryAndReplacesAnotherOffer() async throws {
+        let fixture = try Fixture()
+        try await Commands.pushProducts(fixture.session, options: apply)
+        let annual = try #require(fixture.fake.all("subscriptions").last).id
+        let offers = fixture.fake.all("subscriptionIntroductoryOffers")
+        #expect(Set(offers.compactMap { $0.relationships["territory"]?.id }) == ["USA", "DNK", "GBR"])
+        #expect(offers.allSatisfy {
+            $0.relationships["subscription"]?.id == annual && $0.attributes["offerMode"] as? String == "FREE_TRIAL"
+                && $0.attributes["duration"] as? String == "ONE_WEEK" && $0.attributes["numberOfPeriods"] as? Int == 1
+        })
+
+        let dkk = try #require(offers.first { $0.relationships["territory"]?.id == "DNK" })
+        fixture.fake.change(dkk.id, ["duration": "ONE_MONTH"])
+        fixture.fake.clearWrites()
+        let second = try fixture.again()
+        try await Commands.pushProducts(second.session, options: apply)
+        #expect(second.console.output.contains("free trial, ONE_WEEK, in 1 territories"))
+        #expect(second.console.output.contains("replacing 1 other offers"))
+        let after = fixture.fake.all("subscriptionIntroductoryOffers")
+        #expect(after.count == 3)
+        #expect(after.allSatisfy { $0.attributes["duration"] as? String == "ONE_WEEK" })
+    }
+
     @Test func checkAndStoreKit() async throws {
         let fixture = try Fixture()
         try await Commands.checkProducts(fixture.session)
@@ -184,6 +209,8 @@ import ProductPageKitASC
         #expect(file.contains("\"productID\" : \"com.example.plus.annual\""))
         #expect(file.contains("\"type\" : \"NonConsumable\""))
         #expect(file.contains("\"familyShareable\" : true"))
+        #expect(file.contains("\"paymentMode\" : \"free\""))
+        #expect(file.contains("\"subscriptionPeriod\" : \"P1W\""))
         try await Commands.writeStoreKit(fixture.session)
         #expect(fixture.console.output.contains("Example.storekit already matches the catalogue."))
     }

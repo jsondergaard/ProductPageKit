@@ -150,7 +150,7 @@ final class Fixture {
                 {"productID": "com.example.plus.monthly", "referenceName": "Plus Monthly", "level": 1, "period": "P1M",
                  "price": "4.99", "localizations": {"en": {"name": "Plus", "description": "Every month."}}},
                 {"productID": "com.example.plus.annual", "referenceName": "Plus Annual", "level": 1, "period": "P1Y",
-                 "price": "49.00", "localizations": {"en": {"name": "Plus", "description": "Every year."},
+                 "price": "49.00", "introductoryOffer": {"duration": "ONE_WEEK"}, "localizations": {"en": {"name": "Plus", "description": "Every year."},
                                                      "da": {"name": "Plus", "description": "Hvert år."}}}
               ]
             }],

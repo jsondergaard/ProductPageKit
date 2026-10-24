@@ -257,7 +257,42 @@ struct ProductsPlanner {
         if !available { plan.add(availability(subject, ref: ref, territories: territories)) }
 
         if let prices = try await planPrices(subscription, live: live, ref: ref) { plan.add(prices) }
+        plan = plan + (try await planIntroductoryOffer(subscription, live: live, ref: ref, territories: territories))
         if let screenshot = try await planScreenshot(subject, live: live, ref: ref) { plan.add(screenshot) }
+        return plan
+    }
+
+    /// The catalogue's free trial in every territory the subscription is sold
+    /// in. An offer App Store Connect can't edit is replaced: a trial of
+    /// another length, or a paid offer. Without one in the catalogue, any
+    /// App Store Connect has is reported and left alone.
+    func planIntroductoryOffer(_ subscription: ProductCatalogue.Subscription, live: Subscription?, ref: Ref,
+                               territories: [String]) async throws -> Plan {
+        var plan = Plan()
+        let subject = "\(subscription.productID) introductory offer"
+        let current = try await live.asyncMap { try await asc.introductoryOffers(subscriptionID: $0.id) } ?? []
+        guard let offer = subscription.introductoryOffer else {
+            if !current.isEmpty {
+                plan.warn("\(subscription.productID) has introductory offers in App Store Connect and none in the catalogue")
+            }
+            return plan
+        }
+        let duration = offer.duration.rawValue
+        let stale = current.filter {
+            $0.mode != ProductCatalogue.IntroductoryOffer.freeTrialMode || $0.duration != duration || $0.numberOfPeriods != 1
+        }
+        let covered = Set(current.filter { !stale.contains($0) }.compactMap(\.territory))
+        let missing = territories.filter { !covered.contains($0) }
+        guard !missing.isEmpty || !stale.isEmpty else { return plan }
+        var lines = ["free trial, \(duration), in \(missing.count) territories"]
+        if !stale.isEmpty { lines.append("replacing \(stale.count) other offers") }
+        plan.add(Change(action: current.isEmpty ? .create : .update, subject: subject, lines: lines) { run in
+            for old in stale { try await run.asc.deleteIntroductoryOffer(id: old.id) }
+            let id = try await run.id(ref)
+            for territory in missing {
+                try await run.asc.createFreeTrial(subscriptionID: id, territory: territory, duration: duration)
+            }
+        })
         return plan
     }
 

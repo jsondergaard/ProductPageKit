@@ -85,16 +85,22 @@ public struct ProductCatalogue: Codable, Equatable, Sendable {
         /// Once on, App Store Connect keeps it on. A catalogue without it
         /// means off.
         public var familySharable: Bool
+        /// What new subscribers get first, in every territory the
+        /// subscription is sold in. The App Store gives each Apple Account
+        /// one per subscription group.
+        public var introductoryOffer: IntroductoryOffer?
         public var localizations: [String: ProductText]
 
         public init(productID: String, referenceName: String, level: Int, period: Period, price: String,
-                    familySharable: Bool = false, localizations: [String: ProductText]) {
+                    familySharable: Bool = false, introductoryOffer: IntroductoryOffer? = nil,
+                    localizations: [String: ProductText]) {
             self.productID = productID
             self.referenceName = referenceName
             self.level = level
             self.period = period
             self.price = price
             self.familySharable = familySharable
+            self.introductoryOffer = introductoryOffer
             self.localizations = localizations
         }
 
@@ -106,6 +112,7 @@ public struct ProductCatalogue: Codable, Equatable, Sendable {
             period = try container.decode(Period.self, forKey: .period)
             price = try container.decode(String.self, forKey: .price)
             familySharable = try container.decodeIfPresent(Bool.self, forKey: .familySharable) ?? false
+            introductoryOffer = try container.decodeIfPresent(IntroductoryOffer.self, forKey: .introductoryOffer)
             localizations = try container.decode([String: ProductText].self, forKey: .localizations)
         }
     }
@@ -147,6 +154,45 @@ public struct ProductCatalogue: Codable, Equatable, Sendable {
             self.price = price
             self.familySharable = familySharable
             self.localizations = localizations
+        }
+    }
+
+    /// An introductory offer. Free trials only: the paid kinds need a price
+    /// point in every territory, which nothing here asks for yet.
+    public struct IntroductoryOffer: Codable, Equatable, Sendable {
+        /// How long it lasts, as App Store Connect spells it.
+        public enum Duration: String, Codable, CaseIterable, Sendable {
+            case threeDays = "THREE_DAYS"
+            case oneWeek = "ONE_WEEK"
+            case twoWeeks = "TWO_WEEKS"
+            case oneMonth = "ONE_MONTH"
+            case twoMonths = "TWO_MONTHS"
+            case threeMonths = "THREE_MONTHS"
+            case sixMonths = "SIX_MONTHS"
+            case oneYear = "ONE_YEAR"
+
+            /// The ISO 8601 period a StoreKit configuration file takes.
+            public var period: String {
+                switch self {
+                case .threeDays: "P3D"
+                case .oneWeek: "P1W"
+                case .twoWeeks: "P2W"
+                case .oneMonth: "P1M"
+                case .twoMonths: "P2M"
+                case .threeMonths: "P3M"
+                case .sixMonths: "P6M"
+                case .oneYear: "P1Y"
+                }
+            }
+        }
+
+        /// App Store Connect's `offerMode` for a free trial.
+        public static let freeTrialMode = "FREE_TRIAL"
+
+        public var duration: Duration
+
+        public static func freeTrial(_ duration: Duration) -> IntroductoryOffer {
+            IntroductoryOffer(duration: duration)
         }
     }
 

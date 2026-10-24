@@ -69,6 +69,9 @@ filter:
     - subscriptionAppStoreReviewScreenshots_createInstance
     - subscriptionAppStoreReviewScreenshots_updateInstance
     - subscriptionAppStoreReviewScreenshots_deleteInstance
+    - subscriptions_introductoryOffers_getToManyRelated
+    - subscriptionIntroductoryOffers_createInstance
+    - subscriptionIntroductoryOffers_deleteInstance
 
     # Custom product pages
     - apps_appCustomProductPages_getToManyRelated
