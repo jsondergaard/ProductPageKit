@@ -22,14 +22,35 @@ enum MacCapture {
         return session?["CGSSessionScreenIsLocked"] as? Bool == true
     }
 
+    /// How many times a launch refused by the system is tried.
+    static let launchAttempts = 5
+
     /// A new instance through Launch Services, so it comes up in front.
+    ///
+    /// Quitting and launching the app in quick succession can leave macOS
+    /// refusing a launch with a "prevent launch" assertion for a moment, so a
+    /// refused launch is tried again after a pause that grows with each try.
     static func launch(_ app: URL, arguments: [String]) async throws -> Int32 {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.arguments = arguments
         configuration.createsNewApplicationInstance = true
         configuration.activates = true
         configuration.addsToRecentItems = false
+        for attempt in 1..<launchAttempts {
+            do {
+                return try await NSWorkspace.shared.openApplication(at: app, configuration: configuration).processIdentifier
+            } catch let error as NSError where isLaunchRefused(error) {
+                try await Task.sleep(for: .seconds(2 * attempt))
+            }
+        }
         return try await NSWorkspace.shared.openApplication(at: app, configuration: configuration).processIdentifier
+    }
+
+    /// Whether Launch Services refused the launch because RunningBoard holds
+    /// a "prevent launch" assertion for the app, which passes.
+    static func isLaunchRefused(_ error: NSError) -> Bool {
+        error.domain == "RBSRequestErrorDomain"
+            || (error.userInfo[NSUnderlyingErrorKey] as? NSError).map(isLaunchRefused) == true
     }
 
     /// Brings the running instance of `app` to the front. Through `open`:

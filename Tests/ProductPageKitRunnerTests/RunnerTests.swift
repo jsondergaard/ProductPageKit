@@ -89,6 +89,19 @@ import Testing
     }
 }
 
+@Suite struct MacLaunchTests {
+    /// RunningBoard's "prevent launch" assertion arrives wrapped in Launch
+    /// Services' own errors, and passes; any other failure is the caller's.
+    @Test func aLaunchRefusedByRunningBoardIsRetried() {
+        let refused = NSError(domain: "RBSRequestErrorDomain", code: 7)
+        let wrapped = NSError(domain: NSCocoaErrorDomain, code: 256, userInfo: [
+            NSUnderlyingErrorKey: NSError(domain: NSOSStatusErrorDomain, code: -10699, userInfo: [NSUnderlyingErrorKey: refused]),
+        ])
+        #expect(MacCapture.isLaunchRefused(wrapped))
+        #expect(!MacCapture.isLaunchRefused(NSError(domain: NSCocoaErrorDomain, code: 4)))
+    }
+}
+
 @Suite struct LockTests {
     @Test func aSecondRunIsRefusedUntilTheFirstReleases() throws {
         let file = FileManager.default.temporaryDirectory.appending(path: "ProductPageKitLockTests-\(UUID().uuidString)/ios.lock")
