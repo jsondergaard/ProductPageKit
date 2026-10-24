@@ -61,7 +61,7 @@ struct CaptureTests {
     @Test func capturesEveryShotInEveryLocaleOnEveryPlatform() async throws {
         let (session, console) = session
         let report = try #require(try await Commands.captureScreenshots(session, platforms: "", locales: "", shots: "",
-                                                                          workers: 1, dryRun: false))
+                                                                          workers: 1, force: true, dryRun: false))
         let names = ["01_list.png", "02_detail-blue.png", "03_settings.png"]
         let banners = ["banner-blue.png", "banner-red.png"]
         #expect(report.shots.map(\.lastPathComponent).sorted()
@@ -172,12 +172,36 @@ struct CaptureTests {
     @Test func aSubsetCapturesAnExtraSceneUnnumberedAndKeepsTheRest() async throws {
         let (session, _) = session
         let report = try #require(try await Commands.captureScreenshots(session, platforms: "ios", locales: "en", shots: "detail",
-                                                                          workers: nil, dryRun: false))
+                                                                          workers: nil, force: true, dryRun: false))
         #expect(report.shots.map(\.lastPathComponent) == ["detail.png"])
         #expect(report.reviewScreenshots.isEmpty)
         let directory = session.cache.raw(Self.project.platforms[0], Self.en)
         let files = try FileManager.default.contentsOfDirectory(atPath: directory.path)
         #expect(files.contains("detail.png"))
+    }
+
+    /// A second run from the same app, device and settings takes nothing, and
+    /// launches nothing; a capture that is gone, or whose inputs changed, is
+    /// taken again, and `--force` takes everything.
+    @Test func aRepeatedRunKeepsWhatItTook() async throws {
+        let (session, console) = session
+        func run(force: Bool) async throws -> CaptureReport {
+            try #require(try await Commands.captureScreenshots(session, platforms: "ios", locales: "en", shots: "detail",
+                                                                workers: nil, force: force, dryRun: false))
+        }
+        #expect(try await run(force: true).shots.count == 1)
+        let again = try await run(force: false)
+        #expect(again.shots.isEmpty)
+        #expect(again.unchanged == 1)
+        #expect(console.output.contains("Everything is up to date: 1 capture kept"))
+        let file = session.cache.capture(Self.project.platforms[0], Self.en, Shot("detail"))
+        try FileManager.default.removeItem(at: file)
+        #expect(try await run(force: false).shots.map(\.lastPathComponent) == ["detail.png"])
+        // A different stamp: the ledger's record of the capture is stale.
+        let ledger = session.cache.directory.appending(path: "ledger/\(Self.project.platforms[0].id)/en.json")
+        try Data("{}".utf8).write(to: ledger)
+        #expect(try await run(force: false).shots.count == 1)
+        #expect(try await run(force: true).shots.count == 1)
     }
 
     /// Everything in ProductPageKitCapture is DEBUG only, so a Release build
@@ -240,7 +264,7 @@ struct CaptureTests {
             throw Stopped(description: "no App Store Connect")
         }
         let report = try await Commands.captureScreenshots(session, platforms: "macos", locales: "da", shots: "detail:blue,settings",
-                                                           workers: nil, dryRun: true)
+                                                           workers: nil, force: false, dryRun: true)
         #expect(report == nil)
         #expect(console.output == """
             Mac: a 800 × 600 window, 1 worker
@@ -252,7 +276,7 @@ struct CaptureTests {
     @Test func workersMustBePositive() async {
         let (session, _) = CaptureTests().session
         await #expect(throws: Stopped.self) {
-            try await Commands.captureScreenshots(session, platforms: "", locales: "", shots: "", workers: 0, dryRun: true)
+            try await Commands.captureScreenshots(session, platforms: "", locales: "", shots: "", workers: 0, force: false, dryRun: true)
         }
     }
 

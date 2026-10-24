@@ -235,6 +235,15 @@ comparison.
 - A shot can carry a variant: `Shot("library", variant: "pro")`.
 - `--shots` captures any scene, store list or not, and `--dry-run` prints the
   launches.
+- A capture is kept when its app, device and settings are the ones it was
+  taken from. The app is every byte of the `.app` bundles the build wrote,
+  UI test runners included; the device is the simulator and its runtime, or
+  the Mac's system and window; the settings are the project's appearance,
+  text size, status bar and locale policy, and the size of each served
+  capture file. A platform with nothing left to take neither boots a
+  simulator nor launches the app. A status bar that shows the time of the
+  run keeps the time of the run that took each capture. `--force` takes
+  everything again.
 - `-ProductPageScene <name>` opens the app on a scene without a runner, which
   is how UI tests reach a fixture.
 
@@ -490,6 +499,7 @@ values with `ProductSource.catalogue(ProductCatalogue(...))`.
   components/   the latest component exports
   framed/       framed screenshots, named by what was drawn into them
   videos/       rendered videos, likewise
+  ledger/       what each capture was taken from, to keep the unchanged ones
   logs/         xcodebuild's output from the latest run
 ```
 

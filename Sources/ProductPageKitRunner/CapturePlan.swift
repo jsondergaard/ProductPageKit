@@ -11,12 +11,16 @@ public struct CaptureRequest: Sendable {
     public var shots: [Shot]?
     /// Simulators per platform. Nil is one for every four cores.
     public var workers: Int?
+    /// Takes every capture again, where the default keeps the ones taken
+    /// from the same app, device and settings.
+    public var force: Bool
 
-    public init(platforms: [Platform], locales: [StoreLocale], shots: [Shot]? = nil, workers: Int? = nil) {
+    public init(platforms: [Platform], locales: [StoreLocale], shots: [Shot]? = nil, workers: Int? = nil, force: Bool = false) {
         self.platforms = platforms
         self.locales = locales
         self.shots = shots
         self.workers = workers
+        self.force = force
     }
 }
 
@@ -43,6 +47,13 @@ public struct CapturePlan: Sendable {
         public let workers: [[StoreLocale]]
         public let reviewScreenshots: [ReviewScreenshot]
 
+        /// This target on `workers` alone: the locales that have something
+        /// left to capture.
+        func taking(_ workers: [[StoreLocale]]) -> Target {
+            Target(platform: platform, shots: shots, components: components, primary: primary, workers: workers,
+                   reviewScreenshots: reviewScreenshots)
+        }
+
         /// The scenes captured in `locale`.
         public func shots(in locale: StoreLocale) -> [Shot] {
             shots + (primary?.locale == locale ? primary?.shots ?? [] : [])
@@ -67,8 +78,10 @@ public struct CapturePlan: Sendable {
     }
 
     public let targets: [Target]
+    public let force: Bool
 
     public init(project: Project, request: CaptureRequest, cores: Int) throws {
+        force = request.force
         targets = request.platforms.compactMap { platform in
             let shots = request.shots ?? project.captures(on: platform.kind)
             let components = request.shots == nil ? project.components(on: platform.kind) : []

@@ -89,6 +89,79 @@ import Testing
     }
 }
 
+@Suite struct CaptureLedgerTests {
+    func directory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appending(path: "CaptureLedgerTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    @Test func aCaptureIsCurrentUnderTheStampItWasTakenUnderWhileItsFileIsThere() throws {
+        let folder = try directory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let png = folder.appending(path: "01_inbox.png")
+        let file = folder.appending(path: "ledger/en.json")
+        var ledger = CaptureLedger(file: file, stamp: "a", force: false)
+        try Data().write(to: png)
+        #expect(!ledger.isCurrent("shot/01_inbox.png", files: [png]))
+        try ledger.record("shot/01_inbox.png")
+        #expect(ledger.isCurrent("shot/01_inbox.png", files: [png]))
+        // Kept across runs, until the inputs change, the file goes or a run forces.
+        #expect(CaptureLedger(file: file, stamp: "a", force: false).isCurrent("shot/01_inbox.png", files: [png]))
+        #expect(!CaptureLedger(file: file, stamp: "b", force: false).isCurrent("shot/01_inbox.png", files: [png]))
+        #expect(!CaptureLedger(file: file, stamp: "a", force: true).isCurrent("shot/01_inbox.png", files: [png]))
+        try FileManager.default.removeItem(at: png)
+        #expect(!CaptureLedger(file: file, stamp: "a", force: false).isCurrent("shot/01_inbox.png", files: [png]))
+    }
+
+    @Test func aShotAndAComponentOfOneNameAreTwoCaptures() {
+        #expect(CaptureLedger.shotKey("basket.png") != CaptureLedger.componentKey("basket.png"))
+    }
+
+    /// The app's bytes, the extensions' and the UI tests' runners', by path and
+    /// content; nothing else in the products folder.
+    @Test func theBundlesDigestChangesWithAnyByteOfAnyBundle() throws {
+        let folder = try directory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let app = folder.appending(path: "Sample.app/Contents")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        try Data("binary".utf8).write(to: app.appending(path: "Sample"))
+        try FileManager.default.createSymbolicLink(atPath: app.appending(path: "Current").path, withDestinationPath: "Sample")
+        let before = CaptureFingerprints.digest(ofBundlesIn: folder)
+        #expect(CaptureFingerprints.digest(ofBundlesIn: folder) == before)
+        try Data("notes".utf8).write(to: folder.appending(path: "build.log"))
+        #expect(CaptureFingerprints.digest(ofBundlesIn: folder) == before)
+        try Data("binary2".utf8).write(to: app.appending(path: "Sample"))
+        let changed = CaptureFingerprints.digest(ofBundlesIn: folder)
+        #expect(changed != before)
+        try FileManager.default.removeItem(at: app.appending(path: "Current"))
+        try FileManager.default.createSymbolicLink(atPath: app.appending(path: "Current").path, withDestinationPath: "Other")
+        #expect(CaptureFingerprints.digest(ofBundlesIn: folder) != changed)
+        try FileManager.default.createDirectory(at: folder.appending(path: "SampleUITests-Runner.app"), withIntermediateDirectories: true)
+        try Data("tests".utf8).write(to: folder.appending(path: "SampleUITests-Runner.app/Runner"))
+        let withRunner = CaptureFingerprints.digest(ofBundlesIn: folder)
+        try Data("tests2".utf8).write(to: folder.appending(path: "SampleUITests-Runner.app/Runner"))
+        #expect(CaptureFingerprints.digest(ofBundlesIn: folder) != withRunner)
+    }
+
+    @Test func theLocalesLeftAreSharedOutAsTheTargetSharedItsOwn() throws {
+        let example = project(locales: ["en", "da", "de"])
+        let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: [example.platforms[0]], locales: example.locales, workers: 2),
+                                   cores: 8)
+        let target = plan.targets[0]
+        let (en, da, de) = (example.locales[0], example.locales[1], example.locales[2])
+        #expect(target.workers == [[en, de], [da]])
+        #expect(ScreenshotRunner.workers(for: [], of: target).isEmpty)
+        #expect(ScreenshotRunner.workers(for: [de], of: target) == [[de]])
+        #expect(ScreenshotRunner.workers(for: [en, da, de], of: target) == [[en, de], [da]])
+        #expect(target.taking([[da]]).workers == [[da]])
+        #expect(target.taking([[da]]).shots == target.shots)
+        #expect(!plan.force)
+        #expect(try CapturePlan(project: example, request: CaptureRequest(platforms: [example.platforms[0]], locales: example.locales, force: true),
+                                cores: 8).force)
+    }
+}
+
 @Suite struct MacLaunchTests {
     /// RunningBoard's "prevent launch" assertion arrives wrapped in Launch
     /// Services' own errors, and passes; any other failure is the caller's.

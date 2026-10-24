@@ -10,11 +10,18 @@ public struct CaptureReport: Sendable {
     public var shots: [URL] = []
     public var components: [URL] = []
     public var reviewScreenshots: [URL] = []
+    /// Captures kept because their app, device and settings had not changed.
+    public var unchanged = 0
+
+    public init(unchanged: Int = 0) {
+        self.unchanged = unchanged
+    }
 
     mutating func merge(_ other: CaptureReport) {
         shots += other.shots
         components += other.components
         reviewScreenshots += other.reviewScreenshots
+        unchanged += other.unchanged
     }
 }
 
@@ -39,6 +46,10 @@ public struct CaptureReport: Sendable {
 ///    until two match, write the last. Then each component of the launch's
 ///    variant is exported.
 /// 6. Delete the clones, and raw files and components nothing draws any more.
+///
+/// A capture whose app, device and settings are the same as when it was last
+/// taken is kept (see `CaptureInputs`); `force` takes everything again. A
+/// platform with nothing left to take neither boots a simulator nor launches.
 ///
 /// The project's capture files are served on loopback for the whole run.
 public struct ScreenshotRunner: Sendable {
@@ -79,6 +90,8 @@ public struct ScreenshotRunner: Sendable {
         // simulator platforms take turns: two at once ran CoreSimulator out
         // of memory. The next platform builds, and the Mac captures, meanwhile.
         let simulatorTurns = Turns()
+        let fingerprints = CaptureFingerprints()
+        let capturedFiles = project.files.map { files in files.names.map { cache.files.appending(path: $0) } } ?? []
         // iPhone and iPad build into one products folder, so they share one
         // build: a second would rewrite the app while the first platform's
         // simulators install and launch it.
@@ -100,12 +113,24 @@ public struct ScreenshotRunner: Sendable {
                     log("Built for \(names) in \(Self.format(.now - building))")
                     builds[folder] = app
                 }
+                let inputs = await fingerprints.inputs(for: target.platform, app: app, device: host.stamp(for: target.platform),
+                                                       project: project, files: capturedFiles, force: plan.force)
+                let pending = pending(in: target, inputs: inputs)
+                guard !pending.locales.isEmpty || !pending.tests.isEmpty else {
+                    log("\(target.platform.name): \(counted(pending.unchanged, "capture")) up to date")
+                    let kept = CaptureReport(unchanged: pending.unchanged)
+                    group.addTask { kept }
+                    continue
+                }
+                let remaining = target.taking(Self.workers(for: pending.locales, of: target))
                 group.addTask {
                     guard case .simulator = host else {
-                        return try await capture(target, app: app, host: host, build: build, simulators: simulators, clock: clock)
+                        return try await capture(remaining, pending: pending, app: app, host: host, build: build,
+                                                 simulators: simulators, clock: clock, inputs: inputs)
                     }
                     return try await simulatorTurns.taking {
-                        try await capture(target, app: app, host: host, build: build, simulators: simulators, clock: clock)
+                        try await capture(remaining, pending: pending, app: app, host: host, build: build,
+                                          simulators: simulators, clock: clock, inputs: inputs)
                     }
                 }
             }
@@ -119,7 +144,12 @@ public struct ScreenshotRunner: Sendable {
             + (report.components.isEmpty ? [] : [counted(report.components.count, "component")])
             + (report.reviewScreenshots.isEmpty ? [] : [counted(report.reviewScreenshots.count, "App Review screenshot")])
         let list = parts.count == 1 ? parts[0] : parts.dropLast().joined(separator: ", ") + " and " + parts.last!
-        log("Captured \(list) in \(Self.format(.now - started)), into \(cache.directory.path)")
+        if report.shots.isEmpty && report.components.isEmpty && report.reviewScreenshots.isEmpty {
+            log("Everything is up to date: \(counted(report.unchanged, "capture")) kept, which --force takes again")
+        } else {
+            let kept = report.unchanged == 0 ? "" : "; \(counted(report.unchanged, "capture")) up to date, which --force takes again"
+            log("Captured \(list) in \(Self.format(.now - started)), into \(cache.directory.path)\(kept)")
+        }
         return report
     }
 
@@ -166,6 +196,17 @@ public struct ScreenshotRunner: Sendable {
             }
         }
 
+        /// What the captures are taken on, for the stamp: the simulator and its
+        /// runtime, or the Mac's system and the window.
+        func stamp(for platform: Platform) -> String {
+            switch self {
+            case .simulator(_, let name, let os):
+                "\(name) \(os)"
+            case .mac:
+                "macOS \(ProcessInfo.processInfo.operatingSystemVersionString) \(platform.capture)"
+            }
+        }
+
         static var macDestination: String {
             #if arch(arm64)
             "platform=macOS,arch=arm64"
@@ -176,8 +217,9 @@ public struct ScreenshotRunner: Sendable {
     }
 
     /// - Parameter clock: what the simulators' status bars show.
-    private func capture(_ target: CapturePlan.Target, app: URL, host: Host, build: XcodeBuild,
-                         simulators: Simulators, clock: String) async throws -> CaptureReport {
+    private func capture(_ target: CapturePlan.Target, pending: Pending, app: URL, host: Host, build: XcodeBuild,
+                         simulators: Simulators, clock: String, inputs: CaptureInputs) async throws -> CaptureReport {
+        let kept = CaptureReport(unchanged: pending.unchanged)
         switch host {
         case .simulator(let base, let name, let os):
             log("\(target.platform.name): \(counted(target.workers.count, "worker")) on \(name)")
@@ -186,7 +228,7 @@ public struct ScreenshotRunner: Sendable {
                 // Screens a test puts up get a simulator of their own: a test
                 // that drives other apps leaves them, and the way back to
                 // them in the status bar, behind for whatever launches next.
-                let count = target.workers.count + (target.tests.isEmpty ? 0 : 1)
+                let count = target.workers.count + (pending.tests.isEmpty ? 0 : 1)
                 for worker in 0..<count { clones.append(try await simulators.clone(base, worker: worker)) }
                 let drawsSensorBar = try await simulators.drawsSensorBar(base)
                 let devices = clones.map { udid in
@@ -200,16 +242,16 @@ public struct ScreenshotRunner: Sendable {
                     for (device, locales) in zip(devices, target.workers) {
                         group.addTask {
                             try await device.prepare(app: app, locale: locales[0])
-                            return try await self.locales(locales, of: target, device: device)
+                            return try await self.locales(locales, of: target, device: device, inputs: inputs)
                         }
                     }
                     if let device = devices.dropFirst(target.workers.count).first {
                         group.addTask {
                             try await device.prepare(app: app, locale: project.primaryLocale)
-                            return try await tests(target, device: device, build: build)
+                            return try await tests(pending.tests, of: target, device: device, build: build, inputs: inputs)
                         }
                     }
-                    var report = CaptureReport()
+                    var report = kept
                     for try await part in group { report.merge(part) }
                     return report
                 }
@@ -223,22 +265,25 @@ public struct ScreenshotRunner: Sendable {
             let window = if case .window(let size) = target.platform.capture { size } else { CGSize?.none }
             log("\(target.platform.name): \(window.map { "\(Int($0.width)) × \(Int($0.height)) window" } ?? "window at its own size")")
             let device = MacDevice(app: app, appearance: project.appearance, windowSize: window)
-            var report = try await tests(target, device: device, build: build)
-            report.merge(try await locales(target.workers[0], of: target, device: device))
+            var report = try await tests(pending.tests, of: target, device: device, build: build, inputs: inputs)
+            report.merge(try await locales(target.workers.first ?? [], of: target, device: device, inputs: inputs))
+            report.merge(kept)
             return report
         }
     }
 
     /// The platform's test-drawn screens, in the primary locale, one run of
     /// each test with its scenes in the order listed.
-    private func tests(_ target: CapturePlan.Target, device: some CaptureDevice, build: XcodeBuild) async throws -> CaptureReport {
+    private func tests(_ stale: [TestCapture], of target: CapturePlan.Target, device: some CaptureDevice, build: XcodeBuild,
+                       inputs: CaptureInputs) async throws -> CaptureReport {
         var report = CaptureReport()
-        guard !target.tests.isEmpty else { return report }
+        guard !stale.isEmpty else { return report }
+        var ledger = inputs.ledger(in: cache, platform: target.platform, scope: Self.testsScope)
         let listener = try await ControlListener.start()
         defer { listener.stop() }
         try await device.use(project.primaryLocale)
         var runs: [(test: String, captures: [TestCapture])] = []
-        for capture in target.tests {
+        for capture in stale {
             if let index = runs.firstIndex(where: { $0.test == capture.test }) {
                 runs[index].captures.append(capture)
             } else {
@@ -248,6 +293,7 @@ public struct ScreenshotRunner: Sendable {
         for run in runs {
             for (capture, file) in try await retrying(run.captures, of: run.test, platform: target.platform, device: device,
                                                       listener: listener, build: build) {
+                try ledger.record(CaptureLedger.shotKey(file.lastPathComponent))
                 if target.reviewScreenshots.contains(where: { $0.capture == capture }) {
                     report.reviewScreenshots.append(file)
                 } else {
@@ -259,21 +305,24 @@ public struct ScreenshotRunner: Sendable {
     }
 
     /// One worker's locales, over one listener.
-    private func locales(_ locales: [StoreLocale], of target: CapturePlan.Target, device: some CaptureDevice) async throws -> CaptureReport {
+    private func locales(_ locales: [StoreLocale], of target: CapturePlan.Target, device: some CaptureDevice,
+                         inputs: CaptureInputs) async throws -> CaptureReport {
         let listener = try await ControlListener.start()
         defer { listener.stop() }
         var report = CaptureReport()
         for locale in locales {
             try await device.use(locale)
-            report.merge(try await capture(target, locale: locale, device: device, listener: listener))
+            report.merge(try await capture(target, locale: locale, device: device, listener: listener, inputs: inputs))
         }
         return report
     }
 
     private func capture(_ target: CapturePlan.Target, locale: StoreLocale, device: some CaptureDevice,
-                         listener: ControlListener) async throws -> CaptureReport {
+                         listener: ControlListener, inputs: CaptureInputs) async throws -> CaptureReport {
+        var ledger = inputs.ledger(in: cache, platform: target.platform, scope: locale.code)
+        let (shots, components) = stale(in: target, locale: locale, ledger: ledger)
+        guard !shots.isEmpty || !components.isEmpty else { return CaptureReport() }
         try FileManager.default.createDirectory(at: cache.raw(target.platform, locale), withIntermediateDirectories: true)
-        let shots = target.shots(in: locale), components = target.components(in: locale)
         let firstScene = shots.first
         let firstVariant = firstScene.map(\.variant) ?? components.first?.variant
         let first = try await launch(target, locale: locale, scene: firstScene?.scene, variant: firstVariant, device: device,
@@ -296,12 +345,14 @@ public struct ScreenshotRunner: Sendable {
                     let file = cache.capture(target.platform, locale, shot)
                     try frame.png.write(to: file, options: .atomic)
                     try highlights.write(for: file)
+                    try ledger.record(CaptureLedger.shotKey(file.lastPathComponent))
                     report.shots.append(file)
                     log("  \(target.platform.id) \(locale.code)  \(file.lastPathComponent)")
                 }
                 for component in planned.components {
-                    report.components.append(try await export(component, on: target.platform, in: locale, session: session,
-                                                              device: device))
+                    let file = try await export(component, on: target.platform, in: locale, session: session, device: device)
+                    try ledger.record(CaptureLedger.componentKey(file.lastPathComponent))
+                    report.components.append(file)
                 }
             } catch {
                 await device.end(pid)
@@ -310,6 +361,56 @@ public struct ScreenshotRunner: Sendable {
             if await !session.quit() { await device.end(pid) }
         }
         return report
+    }
+
+    static let testsScope = "tests"
+
+    /// What a target still has to take: the locales with a shot or component
+    /// not taken under these inputs, and the test-drawn screens likewise, with
+    /// the count kept.
+    struct Pending: Sendable {
+        var locales: [StoreLocale] = []
+        var tests: [TestCapture] = []
+        var unchanged = 0
+    }
+
+    private func pending(in target: CapturePlan.Target, inputs: CaptureInputs) -> Pending {
+        var pending = Pending()
+        for locale in target.workers.flatMap({ $0 }) {
+            let ledger = inputs.ledger(in: cache, platform: target.platform, scope: locale.code)
+            let (shots, components) = stale(in: target, locale: locale, ledger: ledger)
+            pending.unchanged += target.shots(in: locale).count + target.components(in: locale).count - shots.count - components.count
+            if !shots.isEmpty || !components.isEmpty { pending.locales.append(locale) }
+        }
+        let ledger = inputs.ledger(in: cache, platform: target.platform, scope: Self.testsScope)
+        for capture in target.tests {
+            let file = file(for: capture, on: target.platform)
+            if ledger.isCurrent(CaptureLedger.shotKey(file.lastPathComponent), files: [file]) {
+                pending.unchanged += 1
+            } else {
+                pending.tests.append(capture)
+            }
+        }
+        return pending
+    }
+
+    /// The shots and components of `locale` not taken under the ledger's inputs.
+    private func stale(in target: CapturePlan.Target, locale: StoreLocale,
+                       ledger: CaptureLedger) -> (shots: [Shot], components: [Component]) {
+        let shots = target.shots(in: locale).filter { shot in
+            let file = cache.capture(target.platform, locale, shot)
+            return !ledger.isCurrent(CaptureLedger.shotKey(file.lastPathComponent), files: [file])
+        }
+        let components = target.components(in: locale).filter { component in
+            let file = cache.component(target.platform, locale, component)
+            return !ledger.isCurrent(CaptureLedger.componentKey(file.lastPathComponent), files: [file])
+        }
+        return (shots, components)
+    }
+
+    /// `locales` shared out as `target` shared its own.
+    static func workers(for locales: [StoreLocale], of target: CapturePlan.Target) -> [[StoreLocale]] {
+        locales.isEmpty ? [] : CapturePlan.split(locales, into: min(target.workers.count, locales.count))
     }
 
     /// Exports `component` and writes it, trimmed to what it draws.
@@ -539,3 +640,4 @@ actor Turns {
         return try await work()
     }
 }
+

@@ -114,7 +114,7 @@ enum Commands {
 
     @discardableResult
     static func captureScreenshots(_ session: Session, platforms: String, locales: String, shots: String,
-                                   workers: Int?, dryRun: Bool) async throws -> CaptureReport? {
+                                   workers: Int?, force: Bool, dryRun: Bool) async throws -> CaptureReport? {
         try session.checkProject()
         if let workers, workers < 1 { throw Stopped(description: "--workers takes 1 or more.") }
         let project = session.project
@@ -122,7 +122,8 @@ enum Commands {
             platforms: try session.platforms(platforms),
             locales: try session.locales(locales),
             shots: shotList(shots),
-            workers: workers
+            workers: workers,
+            force: force
         )
         let plan = try CapturePlan(project: project, request: request, cores: ProcessInfo.processInfo.activeProcessorCount)
         if dryRun {
@@ -330,14 +331,15 @@ struct ScreenshotsCommand: AsyncParsableCommand {
         @Option(help: "Comma-separated scenes, `scene:variant` for a variant. Default: each platform's shots and the App Review screenshots.")
         var shots = ""
         @Option(help: "Simulators per platform. Default: one for every four cores, at most one per locale.") var workers: Int?
+        @Flag(help: "Take every capture again. By default one taken from the same app, device and settings is kept.") var force = false
         @Flag(help: "Print what would be captured and stop.") var dryRun = false
 
         func run() async throws {
             let session = try Session.get()
-            let (platforms, locales, shots, workers, dryRun) = (platforms.platforms, locales.locales, shots, workers, dryRun)
+            let (platforms, locales, shots, workers, force, dryRun) = (platforms.platforms, locales.locales, shots, workers, force, dryRun)
             _ = try await cancellingOnInterrupt {
                 try await Commands.captureScreenshots(session, platforms: platforms, locales: locales, shots: shots,
-                                                      workers: workers, dryRun: dryRun)
+                                                      workers: workers, force: force, dryRun: dryRun)
             }
         }
     }
