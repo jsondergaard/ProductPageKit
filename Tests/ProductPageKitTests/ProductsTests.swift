@@ -175,6 +175,18 @@ import ProductPageKitASC
         #expect(again.console.output.contains("warning: com.example.old is in App Store Connect and not in the catalogue"))
     }
 
+    /// App Store Connect takes a notification URL only with its version, so
+    /// a new URL goes with the version it already had.
+    @Test func aChangedNotificationURLKeepsItsVersion() async throws {
+        let fixture = try Fixture()
+        let app = try #require(fixture.fake.resource("app"))
+        fixture.fake.change(app.id, ["subscriptionStatusUrl": "https://old.example/hook", "subscriptionStatusUrlVersion": "V2"])
+        try await Commands.pushProducts(fixture.session, options: apply)
+        let pushed = try #require(fixture.fake.resource("app"))
+        #expect(pushed.attributes["subscriptionStatusUrl"] as? String == "https://example.com/v1/notifications")
+        #expect(pushed.attributes["subscriptionStatusUrlVersion"] as? String == "V2")
+    }
+
     /// The free trial goes to every territory, once, and an offer of another
     /// kind is replaced rather than left to contradict it.
     @Test func aFreeTrialReachesEveryTerritoryAndReplacesAnotherOffer() async throws {

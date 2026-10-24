@@ -105,6 +105,8 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
         let components = URLComponents(string: "https://host" + (request.path ?? ""))!
         let query = Dictionary((components.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { $1 })
         if baseURL.host() == "upload.example" {
+            // Apple's object storage refuses a part with no declared length.
+            guard request.headerFields[.contentLength] == String(body.count) else { return (411, nil) }
             uploaded[components.path] = body
             return (200, nil)
         }
@@ -141,6 +143,14 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
         case ("POST", 1):
             return create(parts.last!, input?["data"] as? [String: Any] ?? [:])
         case ("PATCH", 2):
+            let attributes = (input?["data"] as? [String: Any])?["attributes"] as? [String: Any] ?? [:]
+            // App Store Connect takes a notification URL only with its version.
+            for (url, version) in [("subscriptionStatusUrl", "subscriptionStatusUrlVersion"),
+                                   ("subscriptionStatusUrlForSandbox", "subscriptionStatusUrlVersionForSandbox")]
+            where attributes[url] != nil && attributes[version] == nil {
+                return (409, ["errors": [["status": "409", "code": "ENTITY_ERROR.ATTRIBUTE.REQUIRED",
+                                          "title": "You must provide a value for the attribute '\(version)'"]]])
+            }
             return update(parts.last!, input?["data"] as? [String: Any] ?? [:])
         case ("GET", 4) where parts.last == "searchKeywords":
             let ids = assigned[parts[parts.startIndex + 1]] ?? []

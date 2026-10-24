@@ -242,6 +242,8 @@ extension AppStoreConnect {
                 }
             }
             let chunk = data.subdata(in: offset..<min(offset + length, data.count))
+            // Apple's object storage answers 411 to a part sent without one.
+            request.headerFields[.contentLength] = String(chunk.count)
             let (response, _) = try await transport.send(
                 request, body: HTTPBody(chunk), baseURL: URL(string: "\(scheme)://\(host)")!, operationID: "upload"
             )

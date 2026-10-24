@@ -21,9 +21,11 @@ struct ProductsPlanner {
             let wanted = ServerNotifications(url: url, version: "V2", sandboxURL: url, sandboxVersion: "V2")
             let changes = wanted.changes(from: app.notifications)
             if !changes.isEmpty {
+                // The plan shows what changes, but App Store Connect takes a URL
+                // only with its version, so every field goes.
                 plan.add(Change(action: .update, subject: "App Store Server Notifications",
                                 fields: changes.fieldChanges(from: app.notifications)) { run in
-                    try await run.asc.updateNotifications(appID: app.id, changes)
+                    try await run.asc.updateNotifications(appID: app.id, wanted)
                 })
             }
         }
