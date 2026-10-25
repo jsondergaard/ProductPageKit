@@ -108,32 +108,77 @@ extension [FramedScreenshot] {
     }
 }
 
+/// What a localization's screenshot sets hold when a plan is made.
+enum StoredSets: Sendable {
+    /// What App Store Connect holds, by display type; nothing for a
+    /// localization the plan creates empty.
+    case stored([String: StoredSet])
+    /// What a new version will copy, whose sets get ids of their own.
+    case copied([String: StoredSet])
+    /// A localization the plan creates, which App Store Connect fills with
+    /// `source`'s screenshots, so what it holds is known only once it exists.
+    case filled(by: String)
+}
+
+/// What a set's sync was planned from.
+enum SetBasis: Sendable {
+    /// The set as the plan read it, which it must still hold when the
+    /// change runs.
+    case read(SetSync)
+    /// `files`, into a set App Store Connect fills with `source`'s
+    /// screenshots after the plan is made.
+    case filled(by: String, files: [LocalScreenshot])
+
+    var files: [LocalScreenshot] {
+        switch self {
+        case .read(let sync): sync.local
+        case .filled(_, let files): files
+        }
+    }
+
+    var lines: [String] {
+        switch self {
+        case .read(let sync): sync.lines
+        case .filled(let source, let files):
+            ["App Store Connect starts it with \(source)'s screenshots", "replace them with \(files.map(\.name).joined(separator: ", "))"]
+        }
+    }
+}
+
 extension Plan {
     /// Uploads that make a localization's set on each of `sets`' platforms
-    /// hold its files, against `stored`, what it holds by display type. With
-    /// `copied`, `stored` is what a new version will copy, whose sets get ids
-    /// of their own.
-    mutating func syncSets(_ subject: String, _ sets: [LocalSet], stored: [String: StoredSet] = [:], copied: Bool = false,
+    /// hold its files, against what it holds now.
+    mutating func syncSets(_ subject: String, _ sets: [LocalSet], stored: StoredSets = .stored([:]),
                            owner: @escaping @Sendable (String) -> ScreenshotSetOwner, localization: Ref) {
         for set in sets {
-            let storedSet = stored[set.platform.displayType]
-            let sync = SetSync(local: set.files, remote: storedSet?.screenshots ?? [])
-            guard !sync.isEmpty else { continue }
+            let basis: SetBasis
+            var existingSet: String?
+            switch stored {
+            case .stored(let held), .copied(let held):
+                let storedSet = held[set.platform.displayType]
+                let sync = SetSync(local: set.files, remote: storedSet?.screenshots ?? [])
+                guard !sync.isEmpty else { continue }
+                basis = .read(sync)
+                if case .stored = stored { existingSet = storedSet?.id }
+            case .filled(let source):
+                basis = .filled(by: source, files: set.files)
+            }
             add(.syncSet("\(subject) · \(set.platform.name)", platform: set.platform, owner: owner, localization: localization,
-                         planned: sync, existingSet: copied ? nil : storedSet?.id))
+                         basis: basis, existingSet: existingSet))
         }
     }
 }
 
 extension Change {
     /// An upload that makes the screenshot set of `platform` on a localization
-    /// hold exactly `planned.local`. The set is read again when the change
-    /// runs, since a copy made by a new version, or by an earlier run, is
-    /// after the plan; if it does not hold what the plan was made from,
-    /// nothing is written.
+    /// hold exactly `basis.files`. The set is read again when the change
+    /// runs, since a copy made by a new version, by App Store Connect filling
+    /// a new localization, or by an earlier run, is after the plan. A set the
+    /// plan read that no longer holds what the plan was made from is left
+    /// as it is.
     static func syncSet(_ subject: String, platform: Platform.Kind, owner: @escaping @Sendable (String) -> ScreenshotSetOwner,
-                        localization: Ref, planned: SetSync, existingSet: String?) -> Change {
-        Change(action: .upload, subject: subject, lines: planned.lines) { run in
+                        localization: Ref, basis: SetBasis, existingSet: String?) -> Change {
+        Change(action: .upload, subject: subject, lines: basis.lines) { run in
             let owner = owner(try await run.id(localization))
             let setID: String
             if let existingSet {
@@ -143,8 +188,10 @@ extension Change {
             } else {
                 setID = try await run.asc.createScreenshotSet(owner, displayType: platform.displayType)
             }
-            let sync = SetSync(local: planned.local, remote: try await run.asc.screenshots(setID: setID))
-            guard sync.lines == planned.lines else { throw SetChangedSincePlan(subject: subject, planned: planned.lines, now: sync.lines) }
+            let sync = SetSync(local: basis.files, remote: try await run.asc.screenshots(setID: setID))
+            if case .read(let planned) = basis, sync.lines != planned.lines {
+                throw SetChangedSincePlan(subject: subject, planned: planned.lines, now: sync.lines)
+            }
             try await sync.apply(run.asc, setID: setID)
         }
     }
@@ -224,7 +271,7 @@ struct ScreenshotsPlanner {
         let sync = SetSync(local: files, remote: remote)
         guard !sync.isEmpty else { return plan }
         plan.add(.syncSet(subject, platform: platform.kind, owner: ScreenshotSetOwner.version, localization: localization,
-                          planned: sync, existingSet: setID))
+                          basis: .read(sync), existingSet: setID))
         return plan
     }
 }

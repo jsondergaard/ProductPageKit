@@ -467,7 +467,10 @@ not have.
 `experiments push` finds an experiment by `name` and creates it when it is
 missing, then creates its treatments and, for each locale, a localization with
 a screenshot set for iPhone and for iPad that holds exactly the framed shots.
-Files App Store Connect already holds are not uploaded again, and a changed
+App Store Connect starts a new localization with the control's screenshots,
+which the same push replaces; a set of a display type the project does not
+configure keeps the control's copy. Files App Store Connect already holds are
+not uploaded again, and a changed
 traffic proportion is written. `--experiments` names the ones to push by key.
 It never starts an experiment, submits it for review or sets its state; that
 stays in App Store Connect.

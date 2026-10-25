@@ -12,6 +12,8 @@ import Testing
 @Suite struct ExperimentsTests {
     static let iPhone = "APP_IPHONE_67"
     static let iPad = "APP_IPAD_PRO_3GEN_129"
+    /// A display type the project does not configure.
+    static let olderIPhone = "APP_IPHONE_65"
 
     static func experiment(treatments: [Treatment]? = nil, trafficProportion: Int = 50) -> Experiment {
         Experiment("story", name: "Story test", trafficProportion: trafficProportion, treatments: treatments ?? [
@@ -20,8 +22,15 @@ import Testing
     }
 
     /// Both devices, and the experiment; the sample theme frames the captures.
-    func fixture(_ experiment: Experiment = experiment(), locales: [StoreLocale] = []) throws -> Fixture {
+    /// With `live`, the app has an iOS version on sale, the control, whose
+    /// eight screenshots a set App Store Connect copies into every new
+    /// treatment localization: iPhone and iPad in each locale, and in en-US a
+    /// display type the project does not configure.
+    func fixture(_ experiment: Experiment = experiment(), locales: [StoreLocale] = [], live: Bool = true) throws -> Fixture {
         let fixture = try Fixture(themes: .frames)
+        if live {
+            fixture.fake.addLiveIOSVersion(sets: ["en-US": [Self.iPhone, Self.iPad, Self.olderIPhone], "da": [Self.iPhone, Self.iPad]])
+        }
         fixture.project.platforms = [.iPhone(shots: ["home", "list"]), .iPad(shots: ["home", "list"]),
                                      .mac(window: CGSize(width: 1280, height: 800), shots: ["home"])]
         fixture.project.locales += locales
@@ -54,6 +63,11 @@ import Testing
 
     func uploads(_ fixture: Fixture) -> Int { fixture.fake.writes.filter { $0 == "POST /v1/appScreenshots" }.count }
 
+    /// The treatments' screenshot sets.
+    func treatmentSets(_ fixture: Fixture) -> [FakeAppStoreConnect.Resource] {
+        fixture.fake.all("appScreenshotSets").filter { $0.relationships["appStoreVersionExperimentTreatmentLocalization"] != nil }
+    }
+
     @Test func anExperimentIsMadeWithItsTreatmentFilledInEveryLocaleAndNeverStarted() async throws {
         let fixture = try fixture()
         try await push(fixture)
@@ -78,8 +92,7 @@ import Testing
         #expect(fixture.fake.writes.filter { !$0.hasPrefix("POST") && !$0.contains("appScreenshots") } == [])
         #expect(Set(fixture.fake.writes.filter { $0.hasPrefix("POST") }.map { $0.split(separator: "/").last! })
             == ["appStoreVersionExperiments", "appStoreVersionExperimentTreatments", "appStoreVersionExperimentTreatmentLocalizations",
-                "appScreenshotSets", "appScreenshots"])
-        #expect(fixture.fake.all("appStoreVersionLocalizations").isEmpty)
+                "appScreenshots"])
         #expect(fixture.console.output.contains("create  Story test experiment"))
         #expect(fixture.console.output.contains("not started, and not submitted for review"))
         // Only the treatment is framed: two locales, two devices, two shots.
@@ -264,9 +277,9 @@ import Testing
 
         #expect(fixture.fake.all("appStoreVersionExperimentTreatments").count == 3)
         #expect(fixture.fake.all("appStoreVersionExperimentTreatmentLocalizations").count == 9)
-        let sets = fixture.fake.all("appScreenshotSets")
-        #expect(sets.count == 18)
-        #expect(sets.allSatisfy { $0.relationships["appStoreVersionExperimentTreatmentLocalization"] != nil })
+        // Each locale's iPhone and iPad set, and en-US's copy of the
+        // control's set of a display type the project does not configure.
+        #expect(treatmentSets(fixture).count == 18 + 3)
         let expected = ["One": ["01_home.png"], "Two": ["01_list.png", "02_home.png"], "Three": ["01_home.png", "02_list.png"]]
         for (treatment, files) in expected {
             for locale in ["en-US", "da", "de-DE"] {
@@ -354,18 +367,66 @@ import Testing
         #expect(fixture.console.output.contains("does not cover en-US"))
     }
 
+    /// App Store Connect starts each new treatment localization with the
+    /// control's screenshots, so the first push replaces them in one run.
+    @Test func aFirstPushReplacesTheControlsScreenshotsEachNewLocalizationStartsWith() async throws {
+        let fixture = try fixture()
+
+        try await push(fixture)
+
+        #expect(!fixture.console.output.contains("failed"))
+        for locale in ["en-US", "da"] {
+            for display in [Self.iPhone, Self.iPad] {
+                #expect(try shots(fixture, treatment: "Story set", locale: locale, display: display) == ["01_list.png", "02_home.png"])
+            }
+        }
+        #expect(fixture.fake.writes.filter { $0.hasPrefix("DELETE /v1/appScreenshots/") }.count == 4 * 8)
+        #expect(uploads(fixture) == 4 * 2)
+        // Only the copied sets were reused; none was made.
+        #expect(!fixture.fake.writes.contains("POST /v1/appScreenshotSets"))
+        // A display type the project does not configure is left as it is.
+        #expect(try shots(fixture, treatment: "Story set", locale: "en-US", display: Self.olderIPhone).count == 8)
+        // The control keeps its own, and the treatment the unconfigured copy.
+        let controlAndUnconfigured = (5 + 1) * 8
+        #expect(fixture.fake.all("appScreenshots").count == controlAndUnconfigured + 4 * 2)
+
+        fixture.fake.clearWrites()
+        let second = try fixture.again()
+        second.project = fixture.project
+        try await push(second)
+        #expect(second.console.output.contains("Nothing to change."))
+        #expect(fixture.fake.writes.isEmpty)
+    }
+
+    /// A localization App Store Connect has no control for starts empty, and
+    /// gets its sets made.
+    @Test func aLocaleTheControlLacksStartsEmpty() async throws {
+        let fixture = try fixture(locales: [StoreLocale("de", store: "de-DE")])
+        try await push(fixture)
+        #expect(!fixture.console.output.contains("failed"))
+        for display in [Self.iPhone, Self.iPad] {
+            #expect(try shots(fixture, treatment: "Story set", locale: "de-DE", display: display) == ["01_list.png", "02_home.png"])
+        }
+        #expect(fixture.fake.writes.filter { $0 == "POST /v1/appScreenshotSets" }.count == 2)
+    }
+
     @Test func aDryRunWritesNothing() async throws {
         let fixture = try fixture()
         try await push(fixture, options: dryRun)
         #expect(fixture.fake.writes.isEmpty)
         #expect(fixture.console.output.contains("create  Story test experiment"))
         #expect(fixture.console.output.contains("create  Story test experiment · Story set · da"))
-        #expect(fixture.console.output.contains("upload  Story test experiment · Story set · da · iPad 13\""))
+        let lines: [String] = [
+            "  upload  Story test experiment · Story set · da · iPad 13\"",
+            "            App Store Connect starts it with the control's screenshots",
+            "            replace them with 01_list.png, 02_home.png",
+        ]
+        #expect(fixture.console.output.contains(lines.joined(separator: "\n")))
+        #expect(!fixture.console.output.contains("keep 0"))
     }
 
     @Test func anAppNotOnSaleFailsTheCreationAndSkipsWhatDependsOnIt() async throws {
-        let fixture = try fixture()
-        fixture.fake.hasLiveIOSVersion = false
+        let fixture = try fixture(live: false)
         await #expect(throws: ExitCode.self) { try await push(fixture) }
         #expect(fixture.fake.all("appStoreVersionExperiments").isEmpty)
         #expect(fixture.console.output.contains("failed  create Story test experiment: App Store Connect creates an experiment only once the app has a live iOS version"))

@@ -97,17 +97,22 @@ struct ExperimentsPlanner {
         for locale in locales {
             let localizationKey = "\(key) · \(locale.store)"
             let localization: Ref
+            let stored: StoredSets
             if let now = current[locale.store] {
                 localization = .existing(now.localization.id)
+                stored = .stored(now.sets)
             } else {
                 localization = .planned(localizationKey)
+                // App Store Connect fills a new localization with the
+                // control's screenshot sets in its locale.
+                stored = .filled(by: "the control")
                 plan.add(Change(action: .create, subject: localizationKey, creates: localizationKey) { run in
                     await run.record(localizationKey, id: try await run.asc.createTreatmentLocalization(
                         treatmentID: try await run.id(treatmentRef), locale: locale.store))
                 })
             }
             plan.syncSets(localizationKey, try screenshots.sets(of: treatment.list, on: project.alternatePlatforms, in: locale),
-                          stored: current[locale.store]?.sets ?? [:], owner: ScreenshotSetOwner.treatment, localization: localization)
+                          stored: stored, owner: ScreenshotSetOwner.treatment, localization: localization)
         }
 
         let uncovered = project.locales.filter { locale in

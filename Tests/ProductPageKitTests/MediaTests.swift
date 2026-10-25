@@ -82,12 +82,16 @@ import ProductPageKitTestSupport
         #expect(fixture.fake.writes.isEmpty)
     }
 
+    /// An iPhone screenshot named `name`, whose bytes are its name.
+    func localScreenshot(_ name: String, in fixture: Fixture) throws -> LocalScreenshot {
+        let url = fixture.root.appending(path: name)
+        try Data(name.utf8).write(to: url)
+        return try LocalScreenshot(FramedScreenshot(subject: FrameSubject("home", on: .iPhone), platform: .iPhone(), locale: fixture.en,
+                                                    url: url, name: name))
+    }
+
     @Test func matchingIsByChecksumOnePerFile() throws {
-        let url = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).png")
-        try Data(repeating: 3, count: 64).write(to: url)
-        defer { try? FileManager.default.removeItem(at: url) }
-        let file = try LocalScreenshot(FramedScreenshot(subject: FrameSubject("home", on: .iPhone), platform: .iPhone(),
-                                                        locale: StoreLocale("en", store: "en-US"), url: url, name: "01_home.png"))
+        let file = try localScreenshot("01_home.png", in: try Fixture())
         let complete = Screenshot(id: "a", checksum: file.checksum, state: "COMPLETE")
         let twice = SetSync(local: [file, file], remote: [complete])
         #expect(twice.kept.count == 1)
@@ -96,6 +100,50 @@ import ProductPageKitTestSupport
         #expect(failed.delete.map(\.id) == ["a"])
         #expect(failed.upload.count == 1)
         #expect(SetSync(local: [file], remote: [complete]).isEmpty)
+    }
+
+    /// A set App Store Connect fills after the plan is made is synced from
+    /// what it holds when the change runs.
+    @Test func aFilledSetIsSyncedFromWhatItHoldsWhenTheChangeRuns() async throws {
+        let fixture = try Fixture()
+        var plan = Plan()
+        plan.syncSets("Story set · en-US", [LocalSet(platform: .iPhone, files: [try localScreenshot("01_home.png", in: fixture)])],
+                      stored: .filled(by: "the control"), owner: ScreenshotSetOwner.treatment, localization: .planned("en-US"))
+        #expect(plan.lines == ["  upload  Story set · en-US · iPhone 6.9\"",
+                               "            App Store Connect starts it with the control's screenshots",
+                               "            replace them with 01_home.png"])
+        let localization = fixture.fake.add("appStoreVersionExperimentTreatmentLocalizations", ["locale": "en-US"])
+        let set = fixture.fake.addSet("APP_IPHONE_67", of: ("appStoreVersionExperimentTreatmentLocalization",
+                                                            "appStoreVersionExperimentTreatmentLocalizations", localization),
+                                      shots: [("control_1.png", "c1"), ("control_2.png", "c2")])
+        let run = Run(asc: try fixture.session.connect())
+        await run.record("en-US", id: localization)
+
+        try await plan.changes[0].perform(run)
+
+        #expect(fixture.fake.screenshots(inSet: set).map { $0.attributes["fileName"] as? String } == ["01_home.png"])
+    }
+
+    /// A set the plan read that changed before the change runs is left as
+    /// it is.
+    @Test func aReadSetThatChangedSinceThePlanIsLeftAsItIs() async throws {
+        let fixture = try Fixture()
+        let localization = fixture.fake.add("appStoreVersionLocalizations", ["locale": "en-US"],
+                                            relationships: ["appStoreVersion": ("appStoreVersions", "ios")])
+        var plan = Plan()
+        plan.syncSets("iOS 1.2 · en-US", [LocalSet(platform: .iPhone, files: [try localScreenshot("01_home.png", in: fixture)])],
+                      owner: ScreenshotSetOwner.version, localization: .existing(localization))
+        let set = fixture.fake.addSet("APP_IPHONE_67", of: ("appStoreVersionLocalization", "appStoreVersionLocalizations", localization),
+                                      shots: [("other.png", "o1")])
+
+        let error = await #expect(throws: SetChangedSincePlan.self) {
+            try await plan.changes[0].perform(Run(asc: try fixture.session.connect()))
+        }
+
+        #expect(error?.planned == ["upload 01_home.png", "keep 0, then order by file name"])
+        #expect(error?.now == ["upload 01_home.png", "delete 1 no longer in the set", "keep 0, then order by file name"])
+        #expect(fixture.fake.writes.isEmpty)
+        #expect(fixture.fake.screenshots(inSet: set).map { $0.attributes["fileName"] as? String } == ["other.png"])
     }
 }
 

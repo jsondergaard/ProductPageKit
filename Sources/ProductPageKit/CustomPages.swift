@@ -105,8 +105,8 @@ struct CustomPagesPlanner {
             if !assign.isEmpty || !unassign.isEmpty {
                 changes.add(keywordChange(localizationKey, localization: localization, assign: assign, unassign: unassign))
             }
-            changes.syncSets(localizationKey, locale.sets, stored: now.sets, copied: replacing, owner: ScreenshotSetOwner.customPage,
-                             localization: localization)
+            changes.syncSets(localizationKey, locale.sets, stored: replacing ? .copied(now.sets) : .stored(now.sets),
+                             owner: ScreenshotSetOwner.customPage, localization: localization)
         }
         guard !changes.changes.isEmpty else { return plan + changes }
         if replacing {

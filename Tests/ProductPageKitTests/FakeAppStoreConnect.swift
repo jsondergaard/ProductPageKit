@@ -31,9 +31,6 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
     var keywordPools: [String: [String]] = [:]
     /// Keywords assigned to each custom page localization.
     private var assigned: [String: [String]] = [:]
-    /// Whether the app has a live iOS version, without which App Store
-    /// Connect creates no experiment.
-    var hasLiveIOSVersion = true
 
     static let pageSize = 2
 
@@ -74,6 +71,38 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
     }
 
     func keywords(assignedTo localization: String) -> [String] { lock.withLock { assigned[localization] ?? [] } }
+
+    /// A screenshot set of `owner`'s holding `shots`, in order, as processed.
+    @discardableResult
+    func addSet(_ displayType: String, of owner: (key: String, type: String, id: String),
+                shots: [(fileName: String, checksum: String)]) -> String {
+        let set = add("appScreenshotSets", ["screenshotDisplayType": displayType], relationships: [owner.key: (owner.type, owner.id)])
+        let ids = shots.map { shot in
+            add("appScreenshots", ["fileName": shot.fileName, "sourceFileChecksum": shot.checksum, "assetDeliveryState": ["state": "COMPLETE"]],
+                relationships: ["appScreenshotSet": ("appScreenshotSets", set)])
+        }
+        lock.withLock { setOrder[set] = ids }
+        return set
+    }
+
+    /// An iOS version on sale, which App Store Connect requires before it
+    /// creates an experiment, and whose product page is every experiment's
+    /// control: in each locale, a set of each display type holding `shots`
+    /// screenshots.
+    @discardableResult
+    func addLiveIOSVersion(sets: [String: [String]], shots: Int = 8) -> String {
+        let version = add("appStoreVersions", ["platform": "IOS", "versionString": "1.1", "appStoreState": "READY_FOR_SALE"],
+                          relationships: ["app": ("apps", "app")])
+        for (locale, displayTypes) in sets.sorted(by: { $0.key < $1.key }) {
+            let localization = add("appStoreVersionLocalizations", ["locale": locale],
+                                   relationships: ["appStoreVersion": ("appStoreVersions", version)])
+            for displayType in displayTypes {
+                addSet(displayType, of: ("appStoreVersionLocalization", "appStoreVersionLocalizations", localization),
+                       shots: (1...shots).map { ("control_\($0).png", "control-\(locale)-\(displayType)-\($0)") })
+            }
+        }
+        return version
+    }
 
     func assign(_ keywords: [String], to localization: String) { lock.withLock { assigned[localization] = keywords } }
 
@@ -403,6 +432,19 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
         resources[id] = Resource(type: type, id: id, attributes: attributes, relationships: relationships)
         order.append(id)
 
+        // App Store Connect starts a treatment's localization with the
+        // control's screenshot sets in that locale.
+        if type == "appStoreVersionExperimentTreatmentLocalizations", let locale = attributes["locale"] as? String,
+           let treatment = relationships["appStoreVersionExperimentTreatment"].flatMap({ resources[$0.id] }),
+           let experiment = treatment.relationships["appStoreVersionExperiment"].flatMap({ resources[$0.id] }),
+           let control = experiment.relationships["app"].flatMap({ liveIOSVersion(app: $0.id) }),
+           let source = order.compactMap({ resources[$0] }).first(where: {
+               $0.type == "appStoreVersionLocalizations" && $0.relationships["appStoreVersion"]?.id == control.id
+                   && $0.attributes["locale"] as? String == locale
+           }) {
+            copySets(of: source.id, key: "appStoreVersionLocalization", to: (type, id), key: "appStoreVersionExperimentTreatmentLocalization")
+        }
+
         // App Store Connect makes the matching version localization when an
         // app info localization is created.
         if type == "appInfoLocalizations", let locale = attributes["locale"] {
@@ -417,15 +459,40 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
         return (201, document(json(resources[id]!)))
     }
 
+    /// The app's iOS version on sale, whose product page is the control.
+    private func liveIOSVersion(app: String) -> Resource? {
+        order.compactMap { resources[$0] }.first {
+            $0.type == "appStoreVersions" && $0.relationships["app"]?.id == app && $0.attributes["platform"] as? String == "IOS"
+                && $0.attributes["appStoreState"] as? String == "READY_FOR_SALE"
+        }
+    }
+
+    /// Copies a localization's screenshot sets, with their files, to another.
+    private func copySets(of source: String, key sourceKey: String, to target: (type: String, id: String), key targetKey: String) {
+        for set in order.compactMap({ resources[$0] }) where set.type == "appScreenshotSets" && set.relationships[sourceKey]?.id == source {
+            let setCopy = newID()
+            resources[setCopy] = Resource(type: set.type, id: setCopy, attributes: set.attributes, relationships: [targetKey: target])
+            order.append(setCopy)
+            setOrder[setCopy] = (setOrder[set.id] ?? []).compactMap { shot -> String? in
+                guard let screenshot = resources[shot] else { return nil }
+                let shotCopy = newID()
+                resources[shotCopy] = Resource(type: screenshot.type, id: shotCopy, attributes: screenshot.attributes,
+                                               relationships: ["appScreenshotSet": ("appScreenshotSets", setCopy)])
+                order.append(shotCopy)
+                return shotCopy
+            }
+        }
+    }
+
     /// An experiment starts unstarted, and its name is its app's alone.
     private func createExperiment(_ data: [String: Any]) -> (Int, Any?) {
-        guard hasLiveIOSVersion else {
-            return (409, ["errors": [["status": "409", "code": "STATE_ERROR.PPO_CREATE_ONLY_ALLOWED_WITH_APP_STORE_DISTRIBUTION",
-                                      "title": "The app has no live version."]]])
-        }
         var attributes = data["attributes"] as? [String: Any] ?? [:]
         let app = ((data["relationships"] as? [String: Any])?["app"] as? [String: Any])?["data"] as? [String: Any]
         let appID = app?["id"] as? String ?? ""
+        guard liveIOSVersion(app: appID) != nil else {
+            return (409, ["errors": [["status": "409", "code": "STATE_ERROR.PPO_CREATE_ONLY_ALLOWED_WITH_APP_STORE_DISTRIBUTION",
+                                      "title": "The app has no live version."]]])
+        }
         if order.compactMap({ resources[$0] }).contains(where: {
             $0.type == "appStoreVersionExperiments" && $0.relationships["app"]?.id == appID && $0.attributes["name"] as? String == attributes["name"] as? String
         }) {
@@ -485,21 +552,8 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
                                        relationships: ["appCustomProductPageVersion": ("appCustomProductPageVersions", version)])
             order.append(copy)
             assigned[copy] = assigned[localization.id]
-            for set in order.compactMap({ resources[$0] }) where set.type == "appScreenshotSets"
-                && set.relationships["appCustomProductPageLocalization"]?.id == localization.id {
-                let setCopy = newID()
-                resources[setCopy] = Resource(type: set.type, id: setCopy, attributes: set.attributes,
-                                              relationships: ["appCustomProductPageLocalization": ("appCustomProductPageLocalizations", copy)])
-                order.append(setCopy)
-                setOrder[setCopy] = (setOrder[set.id] ?? []).compactMap { shot -> String? in
-                    guard let screenshot = resources[shot] else { return nil }
-                    let shotCopy = newID()
-                    resources[shotCopy] = Resource(type: screenshot.type, id: shotCopy, attributes: screenshot.attributes,
-                                                   relationships: ["appScreenshotSet": ("appScreenshotSets", setCopy)])
-                    order.append(shotCopy)
-                    return shotCopy
-                }
-            }
+            copySets(of: localization.id, key: "appCustomProductPageLocalization", to: (localization.type, copy),
+                     key: "appCustomProductPageLocalization")
         }
         return (201, document(json(resources[version]!)))
     }
