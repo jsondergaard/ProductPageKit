@@ -12,6 +12,8 @@ pushes it to App Store Connect from one command-line tool:
 - subscriptions and one-time purchases from a product catalogue, and the
   local StoreKit configuration file
 - custom product pages
+- product page optimization experiments, with up to three screenshot
+  treatments
 - App Review screenshots of the in-app purchases
 
 The app decides when a screen is ready, so a capture never waits a fixed
@@ -182,6 +184,7 @@ Outside a terminal, no arguments prints the help.
 | `videos render` | Renders the header and search result videos from the captures, into the cache. |
 | `videos push` | Renders, then uploads changed videos, waits for processing and places them on the editable iOS version. |
 | `pages push` | Frames, then makes each custom product page match: promotional text, keywords and screenshots. Never submits. |
+| `experiments push` | Frames, then makes each experiment hold its treatments' screenshots in every locale on iPhone and iPad. Never starts or submits. |
 | `metadata check` | Checks the copy against Apple's limits and the configuration. No network. |
 | `metadata push` | Makes the editable versions' text match the catalog. |
 | `metadata pull` | Writes App Store Connect's text into the catalog, What's New for every version included. |
@@ -190,7 +193,7 @@ Outside a terminal, no arguments prints the help.
 | `products check` | Checks the product catalogue. |
 | `products push` | Makes the in-app products match the catalogue: groups, subscriptions, one-time purchases, names, availability, prices, free trials, App Review screenshots and server notification URLs. |
 | `products storekit` | Writes the StoreKit configuration file from the catalogue. |
-| `export <dir>` | Copies the framed screenshots, the videos and the renders out of the cache. |
+| `export <dir>` | Copies the framed screenshots, the videos and the renders out of the cache. A custom page's or treatment's screenshots go in a folder of their own. |
 | `cache size`, `cache prune` | Shows what the cache holds; deletes the build, its logs, and files nothing points to. |
 | `doctor` | Checks Xcode, the simulators, Screen Recording and the App Store Connect credentials. |
 
@@ -318,7 +321,10 @@ transparent background.
 ```
 
 A theme's `sources(for:)` lists what each frame reads, and a capture run
-takes exactly what the frames and videos list.
+takes exactly what the frames and videos list. A `FrameSubject` and a
+`FramedShot` say which list a frame belongs to in `list`: `.store`,
+`.customPage(key)` or `.treatment(key)`, so a theme can lay out a treatment's
+shots differently from the store's.
 
 Frames are cached under a hash of everything drawn into them: the capture,
 its highlights, the caption and the tools executable. Editing a caption
@@ -370,6 +376,7 @@ it in Xcode to edit every locale side by side, or run `productpage review`.
 | `video.<kind>.kicker`, `.headline`, `.subline` | A video's caption | none |
 | `page.<page>.promotionalText` | A custom product page's promotional text | 170 |
 | `page.<page>.screenshot.<shot>.kicker`, `.headline`, `.subline` | A custom page's screenshot caption | none |
+| `treatment.<treatment>.screenshot.<shot>.kicker`, `.headline`, `.subline` | An experiment treatment's screenshot caption | none |
 
 The source language's values always upload. A translation uploads once its
 state is *translated*; a new one, or one that needs review, leaves App Store
@@ -390,8 +397,8 @@ lists:
 
 - Copy: the product page, search keywords, What's New one release at a
   time, and the App Review notes
-- Screenshots: each platform's screenshots, and each custom page with its
-  promotional text and screenshots
+- Screenshots: each platform's screenshots, each custom page with its
+  promotional text and screenshots, and each experiment treatment
 - Videos: the header and search videos with their captions
 - Changes: every value changed since the last commit, the other locales
   with changes, and on request what differs from App Store Connect
@@ -434,6 +441,45 @@ takes only terms from the live version's keywords. `pages push` finds a page
 by `name` and creates it when it is missing. It leaves a page in review
 alone, and puts changes to an approved page into a new version. Submitting
 stays in App Store Connect.
+
+## Product page optimization
+
+An experiment shows up to three treatments of the product page's screenshots
+to a share of its visitors, against the live page, which is the control. A
+treatment's shots are framed like a custom page's, on iPhone and iPad, with
+captions under `treatment.<key>.`; `storeCaptions` reuses the store's.
+
+```swift
+experiments: [
+    Experiment("story", name: "Story set", trafficProportion: 50, treatments: [
+        Treatment("story-a", name: "Story A", shots: ["trio", "guide", "free"], storeCaptions: ["free"]),
+        Treatment("story-b", name: "Story B", shots: ["guide", "trio", "free"], storeCaptions: ["free"]),
+    ]),
+]
+```
+
+`trafficProportion` is the percent of visitors who see a treatment, 1 to 100,
+shared evenly between the treatments. A treatment's key is unique in the
+project, and `metadata check` refuses more than three treatments, a share
+outside 1 to 100, repeated keys or names, and a store caption the store does
+not have.
+
+`experiments push` finds an experiment by `name` and creates it when it is
+missing, then creates its treatments and, for each locale, a localization with
+a screenshot set for iPhone and for iPad that holds exactly the framed shots.
+Files App Store Connect already holds are not uploaded again, and a changed
+traffic proportion is written. It never starts an experiment, submits it for
+review or sets its state; that stays in App Store Connect.
+
+Only an experiment in `PREPARE_FOR_SUBMISSION`, `READY_FOR_REVIEW`, `REJECTED`
+or `DEVELOPER_REJECTED`, with no start date, is edited. For any other, the
+push stops with nothing written, and the experiment has to be stopped or
+deleted in App Store Connect, or renamed in the project. App Store Connect
+creates an experiment only for an app that has a live iOS version.
+
+A treatment that leaves a locale or a display type undefined shows the
+control there, while its visitors still count in the treatment's share. With
+`--locales`, a push warns of each locale the treatment does not yet cover.
 
 ## Renders
 

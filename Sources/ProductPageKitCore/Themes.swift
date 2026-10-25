@@ -31,19 +31,28 @@ extension FrameTheme {
     }
 }
 
-/// A screenshot a theme frames: a shot in a platform's list, or in a custom
-/// page's.
-public struct FrameSubject: Hashable, Sendable {
+/// A screenshot a theme frames: a shot in a platform's list, in a custom
+/// page's, or in an experiment treatment's.
+public struct FrameSubject: Hashable, Sendable, CustomStringConvertible {
     public let shot: Shot
     public let platform: Platform.Kind
-    /// The custom page's key, for a page's screenshot.
-    public let page: String?
+    /// The list the shot is in, which is how a theme lays out a treatment's
+    /// shots differently from the store's.
+    public let list: ShotList
 
-    public init(_ shot: Shot, on platform: Platform.Kind, page: String? = nil) {
+    public init(_ shot: Shot, on platform: Platform.Kind, list: ShotList = .store) {
         self.shot = shot
         self.platform = platform
-        self.page = page
+        self.list = list
     }
+
+    /// The custom page's key, for a page's screenshot.
+    public var page: String? {
+        if case .customPage(let key) = list { key } else { nil }
+    }
+
+    /// `the iPhone 6.9" free screenshot of the pro page`.
+    public var description: String { "the \(platform.name) \(shot) screenshot\(list.qualifier)" }
 }
 
 /// Something a frame is drawn from.
@@ -94,8 +103,7 @@ public struct FrameSource: Hashable, Sendable, CustomStringConvertible {
 /// One screenshot to frame, with everything its theme said it is drawn from.
 public struct FramedShot: Sendable {
     public let shot: Shot
-    /// The custom page's key, for a page's screenshot.
-    public let page: String?
+    public let list: ShotList
     /// Its place in its list, from 0, and how many the list holds.
     public let position: Int
     public let count: Int
@@ -111,11 +119,11 @@ public struct FramedShot: Sendable {
     ///   - highlights: the views each capture's app marked with
     ///     `.captureHighlight()`, in its pixels from its top left.
     ///   - files: where each file source is.
-    public init(shot: Shot, page: String? = nil, position: Int, count: Int, platform: Platform.Kind, locale: StoreLocale,
+    public init(shot: Shot, list: ShotList = .store, position: Int, count: Int, platform: Platform.Kind, locale: StoreLocale,
                 caption: Caption, images: [FrameSource: CGImage], highlights: [FrameSource: [CGRect]] = [:],
                 files: [String: URL] = [:]) {
         self.shot = shot
-        self.page = page
+        self.list = list
         self.position = position
         self.count = count
         self.platform = platform
@@ -126,7 +134,7 @@ public struct FramedShot: Sendable {
         self.files = files
     }
 
-    public var subject: FrameSubject { FrameSubject(shot, on: platform, page: page) }
+    public var subject: FrameSubject { FrameSubject(shot, on: platform, list: list) }
 
     /// A capture or component the theme listed in `sources(for:)`.
     public func image(_ source: FrameSource) throws -> CGImage {
@@ -164,8 +172,7 @@ public struct UndeclaredSource: Error, CustomStringConvertible {
     public let frame: FrameSubject
 
     public var description: String {
-        "the theme drew \(source) into the \(frame.platform.name) \(frame.shot) screenshot"
-            + (frame.page.map { " of the \($0) page" } ?? "") + " without listing it in sources(for:)"
+        "the theme drew \(source) into \(frame) without listing it in sources(for:)"
     }
 }
 
@@ -196,13 +203,17 @@ public enum CaptionSubject: Hashable, Sendable {
     case video(CreativeAsset.Kind)
     /// A screenshot of a custom page, by the page's key.
     case pageScreenshot(String, Shot)
+    /// A screenshot of an experiment treatment, by the treatment's key.
+    case treatmentScreenshot(String, Shot)
 
-    /// `screenshot.inbox`, `video.header`, `page.pro.screenshot.library`.
+    /// `screenshot.inbox`, `video.header`, `page.pro.screenshot.library`,
+    /// `treatment.story.screenshot.library`.
     public var key: String {
         switch self {
         case .screenshot(let shot): "screenshot.\(shot.name)"
         case .video(let kind): "video.\(kind.rawValue)"
         case .pageScreenshot(let page, let shot): "\(CustomPage.keyPrefix(page))screenshot.\(shot.name)"
+        case .treatmentScreenshot(let treatment, let shot): "\(Treatment.keyPrefix(treatment))screenshot.\(shot.name)"
         }
     }
 
@@ -211,6 +222,7 @@ public enum CaptionSubject: Hashable, Sendable {
         case .screenshot(let shot): "the \(shot) screenshot"
         case .video(let kind): "the \(kind.title) video"
         case .pageScreenshot(let page, let shot): "the \(shot) screenshot on the \(page) page"
+        case .treatmentScreenshot(let treatment, let shot): "the \(shot) screenshot in the \(treatment) treatment"
         }
     }
 }
@@ -442,7 +454,7 @@ extension MotionTheme {
         }
         if motion.seconds <= 0 || motion.dissolve < 0 { problems.append("videos need a positive length and dissolve") }
         let kinds = assets.map(\.kind)
-        for kind in Set(kinds) where kinds.filter({ $0 == kind }).count > 1 {
+        for kind in kinds.repeated {
             problems.append("the \(kind.title) video is declared twice")
         }
         for asset in assets {

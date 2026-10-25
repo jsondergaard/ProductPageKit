@@ -153,9 +153,16 @@ extension VideosCommand.Push: Guided {
 extension PagesCommand.Push: Guided {
     static func isAvailable(in project: Project) -> Bool { !project.customPages.isEmpty && project.frames != nil }
     static func arguments(_ ask: Prompter, _ project: Project) throws(MenuExit) -> [String] {
-        let platforms = project.platforms.filter { CustomPage.platformsTaken.contains($0.kind) }
+        let platforms = project.platforms.filter { project.alternatePlatforms.contains($0.kind) }
         return try ask.pages(project.customPages) + ask.platforms(platforms).arguments + ask.locales(project.locales)
             + ask.writeMode()
+    }
+}
+
+extension ExperimentsCommand.Push: Guided {
+    static func isAvailable(in project: Project) -> Bool { !project.experiments.isEmpty && project.frames != nil }
+    static func arguments(_ ask: Prompter, _ project: Project) throws(MenuExit) -> [String] {
+        try ask.locales(project.locales) + ask.writeMode()
     }
 }
 

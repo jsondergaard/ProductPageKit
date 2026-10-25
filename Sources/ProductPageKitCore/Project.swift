@@ -37,6 +37,8 @@ public struct Project: Sendable {
     public var videos: (any MotionTheme)?
     /// Pages with their own screenshots, promotional text and keywords.
     public var customPages: [CustomPage]
+    /// Product page optimization tests, each with its treatments' screenshots.
+    public var experiments: [Experiment]
     /// Files the app reads while it is captured, which themes may draw too.
     public var files: (any CaptureFiles)?
     /// Images of the app for elsewhere, taken in the primary locale.
@@ -63,6 +65,7 @@ public struct Project: Sendable {
         frames: (any FrameTheme)? = nil,
         videos: (any MotionTheme)? = nil,
         customPages: [CustomPage] = [],
+        experiments: [Experiment] = [],
         files: (any CaptureFiles)? = nil,
         renders: [Render] = [],
         output: ImageFormat = .png,
@@ -84,6 +87,7 @@ public struct Project: Sendable {
         self.frames = frames
         self.videos = videos
         self.customPages = customPages
+        self.experiments = experiments
         self.files = files
         self.renders = renders
         self.output = output
@@ -115,19 +119,39 @@ public struct Project: Sendable {
         customPages.first { $0.key == key }
     }
 
+    /// The treatment with this key, in whichever experiment has it.
+    public func treatment(_ key: String) -> Treatment? {
+        experiments.lazy.flatMap(\.treatments).first { $0.key == key }
+    }
+
+    /// The shots a list shows on `platform`, or nil for a list the project
+    /// does not have.
+    public func listing(_ list: ShotList, on platform: Platform.Kind) -> (any ShotListing)? {
+        switch list {
+        case .store: self.platform(platform)
+        case .customPage(let key): customPage(key)
+        case .treatment(let key): treatment(key)
+        }
+    }
+
+    /// The configured platforms App Store Connect takes a custom page's or a
+    /// treatment's screenshots for.
+    public var alternatePlatforms: [Platform.Kind] {
+        Platform.Kind.alternateScreenshotPlatforms.filter { platform($0) != nil }
+    }
+
     /// What has a caption: every listed shot once a theme frames them, each
-    /// custom page's shots that do not show the store's caption, and every
-    /// video.
+    /// custom page's and treatment's shots that do not show the store's
+    /// caption, and every video.
     public var captionSubjects: [CaptionSubject] {
         var subjects: [CaptionSubject] = []
         if frames != nil {
             for shot in platforms.flatMap(\.shots) where !subjects.contains(.screenshot(shot)) {
                 subjects.append(.screenshot(shot))
             }
-            for page in customPages {
-                for shot in page.shots where !page.storeCaptions.contains(shot) {
-                    subjects.append(.pageScreenshot(page.key, shot))
-                }
+            let listings: [any ShotListing] = customPages + experiments.flatMap(\.treatments)
+            for listing in listings {
+                subjects += listing.captionedShots.map(listing.list.captionSubject)
             }
         }
         subjects += (videos?.assets ?? []).map { .video($0.kind) }
@@ -135,14 +159,17 @@ public struct Project: Sendable {
     }
 
     /// Every screenshot framed: each platform's list, then each custom
-    /// page's shots on its configured platforms that take them.
+    /// page's shots on its configured platforms that take them, then each
+    /// treatment's.
     public var frameSubjects: [FrameSubject] {
-        platforms.flatMap { platform in platform.shots.map { FrameSubject($0, on: platform.kind) } }
+        func subjects(of listing: some ShotListing, on kinds: [Platform.Kind]) -> [FrameSubject] {
+            kinds.flatMap { kind in listing.shots.map { FrameSubject($0, on: kind, list: listing.list) } }
+        }
+        return platforms.flatMap { subjects(of: $0, on: [$0.kind]) }
             + customPages.flatMap { page in
-                page.platforms.filter { CustomPage.platformsTaken.contains($0) && platform($0) != nil }.flatMap { platform in
-                    page.shots.map { FrameSubject($0, on: platform, page: page.key) }
-                }
+                subjects(of: page, on: page.platforms.filter(alternatePlatforms.contains))
             }
+            + experiments.flatMap(\.treatments).flatMap { subjects(of: $0, on: alternatePlatforms) }
     }
 
     /// What `frame` is drawn from: what the theme says, or, without one, the
@@ -223,12 +250,12 @@ public struct Project: Sendable {
         var problems: [String] = []
         if locales.isEmpty { problems.append("no locales") }
         let codes = locales.map(\.code)
-        for code in Set(codes) where codes.filter({ $0 == code }).count > 1 {
+        for code in codes.repeated {
             problems.append("locale \(code) is listed twice")
         }
         if platforms.isEmpty { problems.append("no platforms") }
         let ids = platforms.map(\.id)
-        for id in Set(ids) where ids.filter({ $0 == id }).count > 1 {
+        for id in ids.repeated {
             problems.append("platform \(id) is listed twice")
         }
         if let videos {
@@ -238,15 +265,28 @@ public struct Project: Sendable {
             problems += videos.problems(platforms: platforms, files: Set(files?.names ?? []))
         }
         let pageKeys = customPages.map(\.key)
-        for key in Set(pageKeys) where pageKeys.filter({ $0 == key }).count > 1 {
+        for key in pageKeys.repeated {
             problems.append("the \(key) page is listed twice")
         }
         let pageNames = customPages.map(\.name)
-        for name in Set(pageNames) where pageNames.filter({ $0 == name }).count > 1 {
+        for name in pageNames.repeated {
             problems.append("two custom pages are named \(name)")
         }
         let storeShots = Set(platforms.flatMap(\.shots))
         problems += customPages.flatMap { $0.problems(platforms: platforms, storeShots: storeShots) }
+        let experimentKeys = experiments.map(\.key)
+        for key in experimentKeys.repeated {
+            problems.append("the \(key) experiment is listed twice")
+        }
+        let experimentNames = experiments.map(\.name)
+        for name in experimentNames.repeated {
+            problems.append("two experiments are named \(name)")
+        }
+        let treatmentKeys = experiments.flatMap(\.treatments).map(\.key)
+        for key in treatmentKeys.repeated {
+            problems.append("the \(key) treatment is listed twice")
+        }
+        problems += experiments.flatMap { $0.problems(platforms: platforms, storeShots: storeShots) }
         if let frames {
             for platform in platforms where !platform.kind.acceptedSizes.contains(frames.canvasSize(for: platform.kind)) {
                 let size = frames.canvasSize(for: platform.kind)
@@ -271,7 +311,7 @@ public struct Project: Sendable {
         // Exported under each platform, so a name is one platform's once.
         for platform in Set(renders.map(\.source.platform)) {
             let names = renders.filter { $0.source.platform == platform }.map(\.name)
-            for name in Set(names) where names.filter({ $0 == name }).count > 1 {
+            for name in names.repeated {
                 problems.append("the \(platform.name) render \(name) is listed twice")
             }
         }
@@ -288,7 +328,7 @@ public struct Project: Sendable {
         }
         problems += platforms.flatMap { $0.problems() }
         let kinds = reviewScreenshots.map(\.kind)
-        for kind in Set(kinds) where kinds.filter({ $0 == kind }).count > 1 {
+        for kind in kinds.repeated {
             problems.append("the \(kind.title) review screenshot is listed twice")
         }
         return problems.sorted()

@@ -244,7 +244,7 @@ actor Review {
     }
 
     /// The listing, What's New and the App Review notes, then the
-    /// screenshots, each custom page, and each video.
+    /// screenshots, each custom page, each treatment, and each video.
     func sections(_ copy: StoreCopy) -> [ReviewState.Section] {
         typealias Section = ReviewState.Section
         var sections = [
@@ -259,12 +259,18 @@ actor Review {
         let platforms = project.platforms.filter { !$0.shots.isEmpty }
         if !platforms.isEmpty {
             sections.append(Section(id: "screenshots", group: "Screenshots", title: "App Store", kind: .screenshots, fields: [],
-                                    strips: platforms.map { strip($0.kind, page: nil) }))
+                                    strips: platforms.map { strip($0.kind, list: .store) }))
         }
         for page in project.customPages {
-            let kinds = page.platforms.filter { kind in project.frameSubjects.contains { $0.page == page.key && $0.platform == kind } }
             sections.append(Section(id: "page-\(page.key)", group: "Custom pages", title: page.name, kind: .screenshots,
-                                    fields: [page.promotionalText.key], strips: kinds.map { strip($0, page: page) }))
+                                    fields: [page.promotionalText.key], strips: strips(of: page)))
+        }
+        for experiment in project.experiments {
+            for treatment in experiment.treatments {
+                sections.append(Section(id: "treatment-\(treatment.key)", group: "Experiments",
+                                        title: "\(experiment.name) · \(treatment.name)", kind: .screenshots, fields: [],
+                                        strips: strips(of: treatment)))
+            }
         }
         for asset in project.videos?.assets ?? [] {
             let title = asset.kind.title
@@ -276,23 +282,30 @@ actor Review {
         return sections
     }
 
-    /// A platform's list of shots, or a custom page's on that platform, with
-    /// each position's caption lines.
-    func strip(_ kind: Platform.Kind, page: CustomPage?) -> ReviewState.Strip {
+    /// A page's or treatment's list on each platform it is framed on.
+    func strips(of listing: some ShotListing) -> [ReviewState.Strip] {
+        var kinds: [Platform.Kind] = []
+        for subject in project.frameSubjects where subject.list == listing.list && !kinds.contains(subject.platform) {
+            kinds.append(subject.platform)
+        }
+        return kinds.map { strip($0, list: listing.list) }
+    }
+
+    /// A list of shots on a platform, with each position's caption lines.
+    func strip(_ kind: Platform.Kind, list: ShotList) -> ReviewState.Strip {
         let size = canvasSize(kind)
-        let shots = page?.shots ?? project.platform(kind)?.shots ?? []
+        let listing = project.listing(list, on: kind)
         return ReviewState.Strip(
-            id: Self.stripID(kind, page: page?.key), name: kind.name, width: Int(size.width), height: Int(size.height),
-            captions: project.frames == nil ? [] : shots.map { shot in
-                let subject = page?.captionSubject(shot) ?? .screenshot(shot)
-                return Caption.Line.allCases.map { Field.caption(subject, $0).key }
+            id: Self.stripID(kind, list: list), name: kind.name, width: Int(size.width), height: Int(size.height),
+            captions: project.frames == nil ? [] : (listing?.shots ?? []).map { shot in
+                Caption.Line.allCases.map { Field.caption(listing?.captionSubject(shot) ?? .screenshot(shot), $0).key }
             })
     }
 
     /// A strip's screenshots in one locale, or one position of it in every
     /// locale, framed so a caption edited here shows at once.
     func screenshots(strip: String, locale code: String?, position: Int?) async throws -> [Screenshot] {
-        let subjects = project.frameSubjects.filter { Self.stripID($0.platform, page: $0.page) == strip }
+        let subjects = project.frameSubjects.filter { Self.stripID($0.platform, list: $0.list) == strip }
         guard !subjects.isEmpty else { throw Stopped(description: "\(strip) is not a strip of screenshots") }
         let chosen: [FrameSubject]
         let locales: [StoreLocale]
@@ -358,10 +371,10 @@ actor Review {
         project.frames?.canvasSize(for: kind) ?? kind.screenshotSize
     }
 
-    /// The strip a screenshot shows in: its platform's, or a custom page's on
-    /// that platform.
-    static func stripID(_ platform: Platform.Kind, page: String?) -> String {
-        page.map { "page-\($0)-\(platform.rawValue)" } ?? platform.rawValue
+    /// The strip a screenshot shows in: its platform's, or a custom page's or
+    /// treatment's on that platform.
+    static func stripID(_ platform: Platform.Kind, list: ShotList) -> String {
+        list.folder.map { "\($0)-\(platform.rawValue)" } ?? platform.rawValue
     }
 
     /// The catalog as the last commit has it, or nothing outside git or

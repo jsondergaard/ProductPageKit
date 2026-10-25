@@ -31,6 +31,9 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
     var keywordPools: [String: [String]] = [:]
     /// Keywords assigned to each custom page localization.
     private var assigned: [String: [String]] = [:]
+    /// Whether the app has a live iOS version, without which App Store
+    /// Connect creates no experiment.
+    var hasLiveIOSVersion = true
 
     static let pageSize = 2
 
@@ -138,6 +141,8 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
             return createPriceSchedule(input ?? [:])
         case ("POST", 1) where parts.last == "appCustomProductPages":
             return createCustomPage(input ?? [:])
+        case ("POST", 1) where parts.last == "appStoreVersionExperiments":
+            return createExperiment(input?["data"] as? [String: Any] ?? [:])
         case ("POST", 1) where parts.last == "appCustomProductPageVersions":
             return createCustomPageVersion(input?["data"] as? [String: Any] ?? [:])
         case ("POST", 1):
@@ -206,6 +211,10 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
         "inAppPurchasesV2": ("inAppPurchases", "app"),
         "inAppPurchaseLocalizations": ("inAppPurchaseLocalizations", "inAppPurchaseV2"),
         "manualPrices": ("inAppPurchasePrices", "schedule"),
+        "appStoreVersionExperimentsV2": ("appStoreVersionExperiments", "app"),
+        "appStoreVersionExperimentTreatments": ("appStoreVersionExperimentTreatments", "appStoreVersionExperiment"),
+        "appStoreVersionExperimentTreatmentLocalizations": ("appStoreVersionExperimentTreatmentLocalizations",
+                                                            "appStoreVersionExperimentTreatment"),
         "appCustomProductPageVersions": ("appCustomProductPageVersions", "appCustomProductPage"),
         "appCustomProductPageLocalizations": ("appCustomProductPageLocalizations", "appCustomProductPageVersion"),
     ]
@@ -221,10 +230,10 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
         case "appScreenshots":
             return (setOrder[parent] ?? []).compactMap { resources[$0] }
         case "appScreenshotSets":
-            // A version's localization or a custom page's.
-            return order.compactMap { resources[$0] }.filter {
-                $0.type == "appScreenshotSets"
-                    && ($0.relationships["appStoreVersionLocalization"]?.id == parent || $0.relationships["appCustomProductPageLocalization"]?.id == parent)
+            // A version's localization, a custom page's or a treatment's.
+            return order.compactMap { resources[$0] }.filter { set in
+                set.type == "appScreenshotSets" && ["appStoreVersionLocalization", "appCustomProductPageLocalization",
+                                                    "appStoreVersionExperimentTreatmentLocalization"].contains { set.relationships[$0]?.id == parent }
             }
         case "searchKeywords":
             return (keywordPools[query["filter[locale]"] ?? ""] ?? []).map { Resource(type: "appKeywords", id: $0, attributes: [:], relationships: [:]) }
@@ -349,6 +358,7 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
         "subscriptionGroupLocalizations": "subscriptionGroup",
         "subscriptionLocalizations": "subscription",
         "appCustomProductPageLocalizations": "appCustomProductPageVersion",
+        "appStoreVersionExperimentTreatmentLocalizations": "appStoreVersionExperimentTreatment",
         "inAppPurchaseLocalizations": "inAppPurchaseV2",
     ]
 
@@ -404,6 +414,27 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
                 order.append(child)
             }
         }
+        return (201, document(json(resources[id]!)))
+    }
+
+    /// An experiment starts unstarted, and its name is its app's alone.
+    private func createExperiment(_ data: [String: Any]) -> (Int, Any?) {
+        guard hasLiveIOSVersion else {
+            return (409, ["errors": [["status": "409", "code": "STATE_ERROR.PPO_CREATE_ONLY_ALLOWED_WITH_APP_STORE_DISTRIBUTION",
+                                      "title": "The app has no live version."]]])
+        }
+        var attributes = data["attributes"] as? [String: Any] ?? [:]
+        let app = ((data["relationships"] as? [String: Any])?["app"] as? [String: Any])?["data"] as? [String: Any]
+        let appID = app?["id"] as? String ?? ""
+        if order.compactMap({ resources[$0] }).contains(where: {
+            $0.type == "appStoreVersionExperiments" && $0.relationships["app"]?.id == appID && $0.attributes["name"] as? String == attributes["name"] as? String
+        }) {
+            return (409, ["errors": [["status": "409", "code": "ENTITY_ERROR.ATTRIBUTE.INVALID.DUPLICATE", "title": "Duplicate name"]]])
+        }
+        attributes["state"] = "PREPARE_FOR_SUBMISSION"
+        let id = newID()
+        resources[id] = Resource(type: "appStoreVersionExperiments", id: id, attributes: attributes, relationships: ["app": ("apps", appID)])
+        order.append(id)
         return (201, document(json(resources[id]!)))
     }
 

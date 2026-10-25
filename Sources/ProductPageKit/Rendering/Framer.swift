@@ -14,7 +14,12 @@ struct FramedScreenshot: Sendable {
     let name: String
 
     var shot: Shot { subject.shot }
-    var page: String? { subject.page }
+    var list: ShotList { subject.list }
+
+    /// Where `export` puts it: beside the platform's own screenshots, in a
+    /// folder of its own for a custom page's or treatment's, whose names
+    /// repeat the store's.
+    var exportPath: String { [platform.id, locale.code, list.folder, name].compactMap { $0 }.joined(separator: "/") }
 }
 
 /// Frames captures into the cache with the project's theme, drawing only the
@@ -34,7 +39,7 @@ struct Framer {
 
     struct Report {
         /// Every screenshot framed: each platform's list, then each custom
-        /// page's, in order.
+        /// page's and each treatment's, in order.
         var screenshots: [FramedScreenshot]
         var drawn: Int
         /// Caption lines shown in the source language for want of a
@@ -43,8 +48,8 @@ struct Framer {
         /// Why each screenshot left out could not be framed.
         var problems: [RenderProblem<FramedItem>]
 
-        /// The platform lists' screenshots, without the custom pages'.
-        var store: [FramedScreenshot] { screenshots.filter { $0.page == nil } }
+        /// The platform lists' screenshots, without the custom pages' and treatments'.
+        var store: [FramedScreenshot] { screenshots.filter { $0.list == .store } }
     }
 
     /// One screenshot to frame, keyed. Its sources are read again only if
@@ -65,10 +70,11 @@ struct Framer {
         case file(URL)
     }
 
-    /// Frames every listed shot of `platforms` in `locales`.
-    func frame(platforms: [Platform], locales: [StoreLocale]) async throws -> Report {
+    /// Frames every listed shot of `platforms` in `locales`, in the lists
+    /// `lists` takes.
+    func frame(platforms: [Platform], locales: [StoreLocale], lists: (ShotList) -> Bool = { _ in true }) async throws -> Report {
         let kinds = Set(platforms.map(\.kind))
-        return try await frame(project.frameSubjects.filter { kinds.contains($0.platform) }, locales: locales)
+        return try await frame(project.frameSubjects.filter { kinds.contains($0.platform) && lists($0.list) }, locales: locales)
     }
 
     /// Frames each of `subjects` in `locales` that has its sources and
@@ -80,16 +86,15 @@ struct Framer {
         var problems: [RenderProblem<FramedItem>] = []
         var digests: [URL: String] = [:]
         // A list at a time, each locale's shots in order.
-        let lists = Dictionary(grouping: subjects) { ListID(platform: $0.platform.rawValue, page: $0.page) }
-        let order = subjects.map { ListID(platform: $0.platform.rawValue, page: $0.page) }.reduce(into: [ListID]()) {
+        let lists = Dictionary(grouping: subjects) { ListID(platform: $0.platform, list: $0.list) }
+        let order = subjects.map { ListID(platform: $0.platform, list: $0.list) }.reduce(into: [ListID]()) {
             if !$0.contains($1) { $0.append($1) }
         }
         for (list, locale) in order.flatMap({ list in locales.map { (list, $0) } }) {
             for subject in lists[list]! {
-                guard let platform = project.platform(subject.platform) else { continue }
-                let page = subject.page.flatMap(project.customPage)
-                let list = page?.shots ?? platform.shots
-                let position = list.firstIndex(of: subject.shot)!
+                guard let platform = project.platform(subject.platform),
+                      let listing = project.listing(subject.list, on: subject.platform) else { continue }
+                let position = listing.shots.firstIndex(of: subject.shot)!
                 let item = FramedItem(subject, locale: locale)
                 var reasons: [String] = []
                 var key = RenderKey("framed")
@@ -114,10 +119,10 @@ struct Framer {
                 }
                 var caption: Caption?
                 if project.frames != nil {
-                    switch captions.caption(page?.captionSubject(subject.shot) ?? .screenshot(subject.shot), locale: locale) {
+                    switch captions.caption(listing.captionSubject(subject.shot), locale: locale) {
                     case .success(let read):
                         caption = read
-                        for part in [subject.platform.rawValue, subject.page ?? "", "\(position)", "\(list.count)", locale.code] {
+                        for part in [subject.platform.rawValue, subject.list.folder ?? "", "\(position)", "\(listing.shots.count)", locale.code] {
                             key.add(part)
                         }
                         key.add(read)
@@ -127,17 +132,17 @@ struct Framer {
                 }
                 guard reasons.isEmpty else {
                     problems += reasons.map {
-                        RenderProblem(item: item, reason: $0, description: "\($0) in \(locale.code), for \(describe(subject))")
+                        RenderProblem(item: item, reason: $0, description: "\($0) in \(locale.code), for \(subject)")
                     }
                     continue
                 }
                 let file = "\(key.finalize()).\(project.output.fileExtension)"
-                let name = page?.fileName(for: subject.shot) ?? platform.fileName(for: subject.shot)
+                let name = listing.fileName(for: subject.shot)
                 jobs.append(Job(
                     item: item,
                     screenshot: FramedScreenshot(subject: subject, platform: platform, locale: locale,
                                                  url: cache.framed.appending(path: file), name: "\(name).\(project.output.fileExtension)"),
-                    position: position, count: list.count, caption: caption, sources: found))
+                    position: position, count: listing.shots.count, caption: caption, sources: found))
             }
         }
 
@@ -163,19 +168,15 @@ struct Framer {
                       problems: problems)
     }
 
-    /// A platform's list, or a custom page's on a platform.
+    /// A platform's own list, or a custom page's or treatment's on a platform.
     private struct ListID: Hashable {
-        let platform: String
-        let page: String?
+        let platform: Platform.Kind
+        let list: ShotList
     }
 
     /// A file's bytes, hashed without keeping them.
     private static func digest(of url: URL) throws -> String {
         SHA256.hash(data: try Data(contentsOf: url, options: .mappedIfSafe)).hex
-    }
-
-    private func describe(_ subject: FrameSubject) -> String {
-        "the \(subject.platform.name) \(subject.shot) screenshot" + (subject.page.map { " of the \($0) page" } ?? "")
     }
 
     private func find(_ source: FrameSource, locale: StoreLocale, files: [String: (URL, String)]) -> Result<Found, Problem> {
@@ -219,7 +220,7 @@ struct Framer {
                     if case .file(let name) = source.content { files[name] = url }
                 }
             }
-            let shot = FramedShot(shot: subject.shot, page: subject.page, position: job.position, count: job.count,
+            let shot = FramedShot(shot: subject.shot, list: subject.list, position: job.position, count: job.count,
                                   platform: subject.platform, locale: job.screenshot.locale, caption: caption, images: images,
                                   highlights: highlights, files: files)
             let canvas = Canvas(size: theme.canvasSize(for: subject.platform))

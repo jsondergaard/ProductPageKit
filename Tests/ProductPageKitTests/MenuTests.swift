@@ -148,6 +148,9 @@ final class ScriptedTerminal: MenuTerminal {
     static func fixture() throws -> Fixture {
         let fixture = try Fixture(themes: [.frames, .videos])
         fixture.project.customPages = [CustomPage("pager", name: "Pager", platforms: [.iPhone], shots: ["home"])]
+        fixture.project.experiments = [Experiment("pager", name: "Pager test", trafficProportion: 50, treatments: [
+            Treatment("pager", name: "Pager", shots: ["home"]),
+        ])]
         return fixture
     }
 
@@ -161,7 +164,7 @@ final class ScriptedTerminal: MenuTerminal {
 
     @Test func everyCommandCanBeRunFromTheMenu() {
         let commands = Self.leaves(of: Root.self, in: nil)
-        #expect(commands.count == 18)
+        #expect(commands.count == 19)
         for (path, command) in commands { #expect(command is any Guided.Type, "\(path) has no questions for the menu") }
     }
 
@@ -171,7 +174,7 @@ final class ScriptedTerminal: MenuTerminal {
     @Test func everyCommandAnsweredWithItsDefaultsParsesAsItself() throws {
         let project = try Self.fixture().project
         let commands = Self.leaves(of: Root.self, in: project)
-        #expect(commands.count == 18)
+        #expect(commands.count == 19)
         for (path, command) in commands {
             let terminal = ScriptedTerminal()
             terminal.respond = { screen in

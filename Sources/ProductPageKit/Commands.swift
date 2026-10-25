@@ -160,13 +160,14 @@ enum Commands {
         guard !checks.contains(where: { $0.status == .failed }) else { throw ExitCode.failure }
     }
 
-    /// Frames every listed shot of `platforms` in `locales` into the cache,
-    /// and stops when any could not be framed.
+    /// Frames every listed shot of `platforms` in `locales`, in the lists
+    /// `lists` takes, into the cache, and stops when any could not be framed.
     @discardableResult
-    static func frameScreenshots(_ session: Session, platforms: [Platform], locales: [StoreLocale]) async throws -> Framer.Report {
+    static func frameScreenshots(_ session: Session, platforms: [Platform], locales: [StoreLocale],
+                                 lists: (ShotList) -> Bool = { _ in true }) async throws -> Framer.Report {
         let console = session.console
         let report = try await Framer(copy: try session.copy(), cache: session.cache) { console.print($0) }
-            .frame(platforms: platforms, locales: locales)
+            .frame(platforms: platforms, locales: locales, lists: lists)
         guard report.problems.isEmpty else {
             throw Stopped(description: "Not every screenshot could be framed:\n" + report.problems.map { "  \($0)" }.joined(separator: "\n")
                           + "\n`productpage screenshots capture` takes the captures; the catalog holds the captions.")
@@ -222,13 +223,29 @@ enum Commands {
         guard !pages.isEmpty else { throw Stopped(description: "The project has no custom pages (Project.customPages).") }
         let copy = try session.copy()
         try copy.problems().check()
-        let platforms = try session.platforms(platforms).filter { CustomPage.platformsTaken.contains($0.kind) }
+        let platforms = try session.platforms(platforms).filter { session.project.alternatePlatforms.contains($0.kind) }
         let locales = try session.locales(locales)
-        let report = try await frameScreenshots(session, platforms: platforms, locales: locales)
-        let keys = Set(pages.map(\.key))
+        let lists = Set(pages.map(\.list))
+        let report = try await frameScreenshots(session, platforms: platforms, locales: locales, lists: lists.contains)
         let asc = try session.connect()
-        let planner = CustomPagesPlanner(copy: copy, screenshots: report.screenshots.filter { $0.page.map(keys.contains) == true },
-                                         pages: pages, platforms: platforms.map(\.kind), locales: locales, asc: asc)
+        let planner = CustomPagesPlanner(copy: copy, screenshots: report.screenshots, pages: pages, platforms: platforms.map(\.kind),
+                                         locales: locales, asc: asc)
+        try await session.execute(try await planner.plan(), asc: asc, options: options)
+    }
+
+    /// Frames, then makes each experiment hold its treatments' screenshots in
+    /// every locale. Never starts an experiment or submits it for review.
+    static func pushExperiments(_ session: Session, locales: String, options: WriteOptions) async throws {
+        try session.checkProject()
+        let project = session.project
+        guard !project.experiments.isEmpty else { throw Stopped(description: "The project has no experiments (Project.experiments).") }
+        try session.copy().problems().check()
+        let locales = try session.locales(locales)
+        let lists = Set(project.experiments.flatMap(\.treatments).map(\.list))
+        let report = try await frameScreenshots(session, platforms: project.platforms.filter { project.alternatePlatforms.contains($0.kind) },
+                                                locales: locales, lists: lists.contains)
+        let asc = try session.connect()
+        let planner = ExperimentsPlanner(project: project, screenshots: report.screenshots, locales: locales, asc: asc)
         try await session.execute(try await planner.plan(), asc: asc, options: options)
     }
 
@@ -411,6 +428,23 @@ struct PagesCommand: AsyncParsableCommand {
         func run() async throws {
             try await Commands.pushPages(try Session.get(), pages: pages, platforms: platforms.platforms, locales: locales.locales,
                                          options: options)
+        }
+    }
+}
+
+struct ExperimentsCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "experiments", abstract: "Product page optimization experiments.",
+                                                    subcommands: [Push.self])
+
+    struct Push: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Frame, then make each experiment hold its treatments' screenshots in every locale. Never starts an experiment or submits it for review."
+        )
+        @OptionGroup var locales: LocaleFlag
+        @OptionGroup var options: WriteOptions
+
+        func run() async throws {
+            try await Commands.pushExperiments(try Session.get(), locales: locales.locales, options: options)
         }
     }
 }

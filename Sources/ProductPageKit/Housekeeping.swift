@@ -10,7 +10,7 @@ extension Commands {
         let project = session.project
         let destination = URL(filePath: directory, relativeTo: URL(filePath: FileManager.default.currentDirectoryPath)).standardizedFileURL
         var files: [(URL, String)] = try await frameScreenshots(session, platforms: project.platforms, locales: project.locales)
-            .screenshots.map { ($0.url, "\($0.platform.id)/\($0.locale.code)/\($0.name)") }
+            .screenshots.map { ($0.url, $0.exportPath) }
         if project.videos != nil {
             files += try await renderVideos(session, locales: project.locales).videos
                 .map { ($0.url, "videos/\($0.locale.code)/\($0.asset.kind.rawValue).mp4") }

@@ -177,14 +177,13 @@ public struct FramedItem: Codable, Hashable, Sendable {
     public let platform: String
     public let locale: String
     public let shot: String
-    /// The custom page's key, for a page's screenshot.
-    public let page: String?
+    public let list: ShotList
 
     public init(_ subject: FrameSubject, locale: StoreLocale) {
         platform = subject.platform.rawValue
         self.locale = locale.code
         shot = subject.shot.name
-        page = subject.page
+        list = subject.list
     }
 }
 

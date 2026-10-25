@@ -120,22 +120,8 @@ public struct Platform: Sendable {
     public var storePlatform: StorePlatform { kind.storePlatform }
     public var displayType: String { kind.displayType }
 
-    /// `01_inbox`: the shot's place in store order, then its name. A shot
-    /// not in the list, such as a scene captured to look at, keeps its name
-    /// alone and is never framed or uploaded.
-    public func fileName(for shot: Shot) -> String {
-        guard let index = shots.firstIndex(of: shot) else { return shot.name }
-        return String(format: "%02d_%@", index + 1, shot.name)
-    }
-
     func problems() -> [String] {
-        var problems: [String] = []
-        for shot in Set(shots) where shots.filter({ $0 == shot }).count > 1 {
-            problems.append("\(name) lists \(shot) twice")
-        }
-        if shots.count > Self.maximumShots {
-            problems.append("\(name) lists \(shots.count) shots, and App Store Connect takes \(Self.maximumShots)")
-        }
+        var problems = shotProblems(owner: name)
         if case .window(let size) = capture, !shots.isEmpty {
             if let size {
                 if size.width <= 0 || size.height <= 0 { problems.append("\(name) has an empty window size") }

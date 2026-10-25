@@ -30,7 +30,7 @@ struct Root: AsyncParsableCommand {
         commandName: "productpage",
         abstract: "Keeps the App Store product page in the repository.",
         subcommands: [MetadataCommand.self, ReleaseCommand.self, ProductsCommand.self, ScreenshotsCommand.self, VideosCommand.self, PagesCommand.self,
-                      ReviewCommand.self, ExportCommand.self, CacheCommand.self, DoctorCommand.self]
+                      ExperimentsCommand.self, ReviewCommand.self, ExportCommand.self, CacheCommand.self, DoctorCommand.self]
     )
 
     /// With no arguments: the menu in a terminal, the help anywhere else.

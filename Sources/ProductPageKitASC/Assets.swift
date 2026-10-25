@@ -22,11 +22,12 @@ public struct LibraryVideo: Hashable, Sendable {
     public let stateDetails: [String]
 }
 
-/// The localization a screenshot set belongs to: a version's, or a custom
-/// product page's.
+/// The localization a screenshot set belongs to: a version's, a custom
+/// product page's, or an experiment treatment's.
 public enum ScreenshotSetOwner: Hashable, Sendable {
     case version(String)
     case customPage(String)
+    case treatment(String)
 }
 
 /// Something placed in a product page slot.
@@ -60,6 +61,13 @@ extension AppStoreConnect {
                 ).ok.body.json
                 return (page.data.map { ($0.attributes?.screenshotDisplayType, $0.id) }, page.links.next)
             }
+        case .treatment(let id):
+            try await all { cursor in
+                let page = try await client.appStoreVersionExperimentTreatmentLocalizationsAppScreenshotSetsGetToManyRelated(
+                    .init(path: .init(id: id), query: .init(limit: 50, cursor: cursor))
+                ).ok.body.json
+                return (page.data.map { ($0.attributes?.screenshotDisplayType, $0.id) }, page.links.next)
+            }
         }
         return Dictionary(sets.compactMap { set in set.type.map { ($0, set.id) } }, uniquingKeysWith: { first, _ in first })
     }
@@ -70,6 +78,10 @@ extension AppStoreConnect {
             .init(appStoreVersionLocalization: .init(data: .init(id: id, _type: .appStoreVersionLocalizations)))
         case .customPage(let id):
             .init(appCustomProductPageLocalization: .init(data: .init(id: id, _type: .appCustomProductPageLocalizations)))
+        case .treatment(let id):
+            .init(appStoreVersionExperimentTreatmentLocalization: .init(data: .init(
+                id: id, _type: .appStoreVersionExperimentTreatmentLocalizations
+            )))
         }
         return try await call {
             try await client.appScreenshotSetsCreateInstance(.init(body: .json(.init(data: .init(

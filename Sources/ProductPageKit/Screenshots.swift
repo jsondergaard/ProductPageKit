@@ -70,6 +70,74 @@ struct SetSync: Sendable {
     }
 }
 
+/// What a screenshot set App Store Connect holds has in it.
+struct StoredSet: Sendable {
+    let id: String
+    let screenshots: [Screenshot]
+}
+
+extension AppStoreConnect {
+    /// The owner's screenshot sets with their screenshots, by display type.
+    func storedSets(_ owner: ScreenshotSetOwner) async throws -> [String: StoredSet] {
+        var sets: [String: StoredSet] = [:]
+        for (type, id) in try await screenshotSets(owner) {
+            sets[type] = StoredSet(id: id, screenshots: try await screenshots(setID: id))
+        }
+        return sets
+    }
+}
+
+extension [FramedScreenshot] {
+    /// The files of `list` on `platform` in `locale`, in list order.
+    func files(of list: ShotList, on platform: Platform.Kind, in locale: StoreLocale) throws -> [LocalScreenshot] {
+        try filter { $0.list == list && $0.platform.kind == platform && $0.locale == locale }.map(LocalScreenshot.init)
+    }
+
+    /// The files of `list` in `locale` on each of `platforms` that has any.
+    func sets(of list: ShotList, on platforms: [Platform.Kind], in locale: StoreLocale) throws
+        -> [(platform: Platform.Kind, files: [LocalScreenshot])] {
+        try platforms.compactMap { platform in
+            let files = try files(of: list, on: platform, in: locale)
+            return files.isEmpty ? nil : (platform, files)
+        }
+    }
+}
+
+extension Change {
+    /// An upload that makes the screenshot set of `platform` on a localization
+    /// hold exactly `planned.local`. The set is read again when the change
+    /// runs, since a copy made by a new version, or by an earlier run, is
+    /// after the plan; if it does not hold what the plan was made from,
+    /// nothing is written.
+    static func syncSet(_ subject: String, platform: Platform.Kind, owner: @escaping @Sendable (String) -> ScreenshotSetOwner,
+                        localization: Ref, planned: SetSync, existingSet: String?) -> Change {
+        Change(action: .upload, subject: subject, lines: planned.lines) { run in
+            let owner = owner(try await run.id(localization))
+            let setID: String
+            if let existingSet {
+                setID = existingSet
+            } else if let found = try await run.asc.screenshotSets(owner)[platform.displayType] {
+                setID = found
+            } else {
+                setID = try await run.asc.createScreenshotSet(owner, displayType: platform.displayType)
+            }
+            let sync = SetSync(local: planned.local, remote: try await run.asc.screenshots(setID: setID))
+            guard sync.lines == planned.lines else { throw SetChangedSincePlan(subject: subject, planned: planned.lines, now: sync.lines) }
+            try await sync.apply(run.asc, setID: setID)
+        }
+    }
+}
+
+struct SetChangedSincePlan: Error, CustomStringConvertible {
+    let subject: String
+    let planned: [String]
+    let now: [String]
+
+    var description: String {
+        "\(subject) no longer holds what the plan was made from: it planned to \(planned.joined(separator: "; ")), and now would \(now.joined(separator: "; ")). Nothing was written to it; run the push again."
+    }
+}
+
 /// Plans `screenshots push`: each set on the editable versions made to hold
 /// exactly the framed screenshots, in the platform's order.
 struct ScreenshotsPlanner {
@@ -95,7 +163,7 @@ struct ScreenshotsPlanner {
                 localizations[version.id] = try await asc.versionLocalizations(versionID: version.id)
             }
             for locale in locales {
-                let files = try screenshots.filter { $0.platform.kind == platform.kind && $0.locale == locale }.map(LocalScreenshot.init)
+                let files = try screenshots.files(of: .store, on: platform.kind, in: locale)
                 guard !files.isEmpty else {
                     plan.warn("\(platform.name) lists no shots, so its \(locale.code) set is left as it is")
                     continue
@@ -134,15 +202,8 @@ struct ScreenshotsPlanner {
         let remote = try await setID.asyncMap { try await asc.screenshots(setID: $0) } ?? []
         let sync = SetSync(local: files, remote: remote)
         guard !sync.isEmpty else { return plan }
-        plan.add(Change(action: .upload, subject: subject, lines: sync.lines) { run in
-            let id: String
-            if let setID {
-                id = setID
-            } else {
-                id = try await run.asc.createScreenshotSet(.version(try await run.id(localization)), displayType: platform.displayType)
-            }
-            try await sync.apply(run.asc, setID: id)
-        })
+        plan.add(.syncSet(subject, platform: platform.kind, owner: ScreenshotSetOwner.version, localization: localization,
+                          planned: sync, existingSet: setID))
         return plan
     }
 }

@@ -52,8 +52,8 @@ struct CustomPagesPlanner {
     private struct Current {
         let localization: CustomPageLocalization
         let keywords: Set<String>
-        /// Display type to set id and its screenshots.
-        let sets: [String: (id: String, screenshots: [Screenshot])]
+        /// By display type.
+        let sets: [String: StoredSet]
     }
 
     private func plan(_ page: CustomPage, record: CustomPageRecord?, appID: String, pools: [String: Set<String>]) async throws -> Plan {
@@ -109,8 +109,8 @@ struct CustomPagesPlanner {
                 let set = now.sets[platform.displayType]
                 let sync = SetSync(local: files, remote: set?.screenshots ?? [])
                 guard !sync.isEmpty else { continue }
-                changes.add(setChange("\(localizationKey) · \(platform.name)", platform: platform, localization: localization,
-                                      planned: sync, existingSet: replacing ? nil : set?.id))
+                changes.add(.syncSet("\(localizationKey) · \(platform.name)", platform: platform, owner: ScreenshotSetOwner.customPage,
+                                     localization: localization, planned: sync, existingSet: replacing ? nil : set?.id))
             }
         }
         guard !changes.changes.isEmpty else { return plan + changes }
@@ -178,8 +178,8 @@ struct CustomPagesPlanner {
         var plan = Plan()
         if !keywords.isEmpty { plan.add(keywordChange(key, localization: localization, assign: keywords, unassign: [])) }
         for (platform, files) in locale.sets {
-            plan.add(setChange("\(key) · \(platform.name)", platform: platform, localization: localization,
-                               planned: SetSync(local: files, remote: []), existingSet: nil))
+            plan.add(.syncSet("\(key) · \(platform.name)", platform: platform, owner: ScreenshotSetOwner.customPage,
+                              localization: localization, planned: SetSync(local: files, remote: []), existingSet: nil))
         }
         return plan
     }
@@ -200,35 +200,10 @@ struct CustomPagesPlanner {
         }
     }
 
-    /// Makes a set hold exactly `planned.local`. The set is read again when
-    /// the change runs, since a new version's is a copy made after the plan;
-    /// if it does not hold what the plan was made from, nothing is written.
-    private func setChange(_ subject: String, platform: Platform.Kind, localization: Ref, planned: SetSync,
-                           existingSet: String?) -> Change {
-        Change(action: .upload, subject: subject, lines: planned.lines) { run in
-            let localizationID = try await run.id(localization)
-            let setID: String
-            if let existingSet {
-                setID = existingSet
-            } else if let copied = try await run.asc.screenshotSets(.customPage(localizationID))[platform.displayType] {
-                setID = copied
-            } else {
-                setID = try await run.asc.createScreenshotSet(.customPage(localizationID), displayType: platform.displayType)
-            }
-            let sync = SetSync(local: planned.local, remote: try await run.asc.screenshots(setID: setID))
-            guard sync.lines == planned.lines else { throw SetChangedSincePlan(subject: subject, planned: planned.lines, now: sync.lines) }
-            try await sync.apply(run.asc, setID: setID)
-        }
-    }
-
     private func wanted(_ page: CustomPage, locale: StoreLocale) throws -> Wanted {
         let terms = Set((copy.keywords(locale: locale) ?? "").split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces).lowercased() })
-        let sets = try page.platforms.filter(platforms.contains).compactMap { platform -> (Platform.Kind, [LocalScreenshot])? in
-            let files = try screenshots.filter { $0.page == page.key && $0.platform.kind == platform && $0.locale == locale }
-                .map(LocalScreenshot.init)
-            return files.isEmpty ? nil : (platform, files)
-        }
+        let sets = try screenshots.sets(of: page.list, on: page.platforms.filter(platforms.contains), in: locale)
         return Wanted(locale: locale, promotionalText: copy.value(page.promotionalText, locale: locale),
                       keywords: page.keywords.filter { terms.contains($0.lowercased()) }, sets: sets)
     }
@@ -236,23 +211,9 @@ struct CustomPagesPlanner {
     private func current(versionID: String) async throws -> [String: Current] {
         var current: [String: Current] = [:]
         for (locale, localization) in try await asc.customPageLocalizations(versionID: versionID) {
-            var sets: [String: (id: String, screenshots: [Screenshot])] = [:]
-            for (type, id) in try await asc.screenshotSets(.customPage(localization.id)) {
-                sets[type] = (id, try await asc.screenshots(setID: id))
-            }
             current[locale] = Current(localization: localization, keywords: try await asc.assignedKeywords(localizationID: localization.id),
-                                      sets: sets)
+                                      sets: try await asc.storedSets(.customPage(localization.id)))
         }
         return current
-    }
-}
-
-struct SetChangedSincePlan: Error, CustomStringConvertible {
-    let subject: String
-    let planned: [String]
-    let now: [String]
-
-    var description: String {
-        "\(subject) no longer holds what the plan was made from: it planned to \(planned.joined(separator: "; ")), and now would \(now.joined(separator: "; ")). Nothing was written to it; run the push again."
     }
 }
