@@ -47,9 +47,6 @@ struct Framer {
         var untranslated: [String]
         /// Why each screenshot left out could not be framed.
         var problems: [RenderProblem<FramedItem>]
-
-        /// The platform lists' screenshots, without the custom pages' and treatments'.
-        var store: [FramedScreenshot] { screenshots.filter { $0.list == .store } }
     }
 
     /// One screenshot to frame, keyed. Its sources are read again only if

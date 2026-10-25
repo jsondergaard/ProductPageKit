@@ -35,10 +35,10 @@ public struct TreatmentLocalization: Equatable, Sendable {
 }
 
 /// An experiment that App Store Connect holds in a state that cannot be
-/// edited, or whose name it will not take for another.
+/// edited. It is refused while the push is planned, before any write.
 public struct ExperimentNotEditable: Error, CustomStringConvertible, Sendable {
     public let name: String
-    /// Nil when only the duplicate name told.
+    /// Nil when App Store Connect gave none.
     public let state: String?
     public let startDate: Date?
 
@@ -50,10 +50,21 @@ public struct ExperimentNotEditable: Error, CustomStringConvertible, Sendable {
     }
 }
 
+/// A name App Store Connect refused as another experiment's, which it did not
+/// list when the push was planned.
+public struct ExperimentNameTaken: Error, CustomStringConvertible, Sendable {
+    public let name: String
+
+    public var description: String {
+        "App Store Connect already has an experiment named \(name), which it did not list when the push was planned, so none was created. "
+            + "Run the push again, or give the experiment another name."
+    }
+}
+
 /// App Store Connect creates an experiment only for an app that is on sale.
 public struct AppNotOnSale: Error, CustomStringConvertible, Sendable {
     public var description: String {
-        "App Store Connect creates a product page optimization only once the app has a live iOS version. Nothing was created."
+        "App Store Connect creates an experiment only once the app has a live iOS version. Nothing was created."
     }
 }
 
@@ -83,7 +94,7 @@ extension AppStoreConnect {
                 ))))).created.body.json.data.id
             }
         } catch let error as ASCError {
-            if error.isDuplicate { throw ExperimentNotEditable(name: name, state: nil, startDate: nil) }
+            if error.isDuplicate { throw ExperimentNameTaken(name: name) }
             if error.hasCode(containing: "PPO_CREATE_ONLY_ALLOWED_WITH_APP_STORE_DISTRIBUTION") { throw AppNotOnSale() }
             throw error
         }

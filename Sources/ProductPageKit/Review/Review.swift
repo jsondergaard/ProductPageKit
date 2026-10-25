@@ -294,12 +294,11 @@ actor Review {
     /// A list of shots on a platform, with each position's caption lines.
     func strip(_ kind: Platform.Kind, list: ShotList) -> ReviewState.Strip {
         let size = canvasSize(kind)
-        let listing = project.listing(list, on: kind)
-        return ReviewState.Strip(
-            id: Self.stripID(kind, list: list), name: kind.name, width: Int(size.width), height: Int(size.height),
-            captions: project.frames == nil ? [] : (listing?.shots ?? []).map { shot in
-                Caption.Line.allCases.map { Field.caption(listing?.captionSubject(shot) ?? .screenshot(shot), $0).key }
-            })
+        let captions = project.listing(list, on: kind).map { listing in
+            listing.shots.map { shot in Caption.Line.allCases.map { Field.caption(listing.captionSubject(shot), $0).key } }
+        }
+        return ReviewState.Strip(id: Self.stripID(kind, list: list), name: kind.name, width: Int(size.width), height: Int(size.height),
+                                 captions: project.frames == nil ? [] : captions ?? [])
     }
 
     /// A strip's screenshots in one locale, or one position of it in every

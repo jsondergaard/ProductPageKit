@@ -95,7 +95,7 @@ public struct ASCError: Error, CustomStringConvertible, Sendable {
     public var isDuplicate: Bool { status == 409 && hasCode(containing: "DUPLICATE") }
 
     /// Whether any error's code contains `fragment`: `STATE_ERROR.PPO_CREATE_ONLY_...`.
-    public func hasCode(containing fragment: String) -> Bool {
+    func hasCode(containing fragment: String) -> Bool {
         errors.contains { ($0.code ?? "").contains(fragment) }
     }
 

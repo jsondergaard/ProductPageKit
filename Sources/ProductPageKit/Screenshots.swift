@@ -87,6 +87,12 @@ extension AppStoreConnect {
     }
 }
 
+/// The files one platform's screenshot set should hold, in order.
+struct LocalSet: Sendable {
+    let platform: Platform.Kind
+    let files: [LocalScreenshot]
+}
+
 extension [FramedScreenshot] {
     /// The files of `list` on `platform` in `locale`, in list order.
     func files(of list: ShotList, on platform: Platform.Kind, in locale: StoreLocale) throws -> [LocalScreenshot] {
@@ -94,11 +100,27 @@ extension [FramedScreenshot] {
     }
 
     /// The files of `list` in `locale` on each of `platforms` that has any.
-    func sets(of list: ShotList, on platforms: [Platform.Kind], in locale: StoreLocale) throws
-        -> [(platform: Platform.Kind, files: [LocalScreenshot])] {
+    func sets(of list: ShotList, on platforms: [Platform.Kind], in locale: StoreLocale) throws -> [LocalSet] {
         try platforms.compactMap { platform in
             let files = try files(of: list, on: platform, in: locale)
-            return files.isEmpty ? nil : (platform, files)
+            return files.isEmpty ? nil : LocalSet(platform: platform, files: files)
+        }
+    }
+}
+
+extension Plan {
+    /// Uploads that make a localization's set on each of `sets`' platforms
+    /// hold its files, against `stored`, what it holds by display type. With
+    /// `copied`, `stored` is what a new version will copy, whose sets get ids
+    /// of their own.
+    mutating func syncSets(_ subject: String, _ sets: [LocalSet], stored: [String: StoredSet] = [:], copied: Bool = false,
+                           owner: @escaping @Sendable (String) -> ScreenshotSetOwner, localization: Ref) {
+        for set in sets {
+            let storedSet = stored[set.platform.displayType]
+            let sync = SetSync(local: set.files, remote: storedSet?.screenshots ?? [])
+            guard !sync.isEmpty else { continue }
+            add(.syncSet("\(subject) · \(set.platform.name)", platform: set.platform, owner: owner, localization: localization,
+                         planned: sync, existingSet: copied ? nil : storedSet?.id))
         }
     }
 }
@@ -194,11 +216,10 @@ struct ScreenshotsPlanner {
     func planSet(_ platform: Platform, locale: StoreLocale, localization: Ref, files: [LocalScreenshot]) async throws -> Plan {
         var plan = Plan()
         let subject = "\(platform.name) · \(locale.store)"
-        var existingSet: String?
+        var setID: String?
         if case .existing(let id) = localization {
-            existingSet = try await asc.screenshotSets(.version(id))[platform.displayType]
+            setID = try await asc.screenshotSets(.version(id))[platform.displayType]
         }
-        let setID = existingSet
         let remote = try await setID.asyncMap { try await asc.screenshots(setID: $0) } ?? []
         let sync = SetSync(local: files, remote: remote)
         guard !sync.isEmpty else { return plan }

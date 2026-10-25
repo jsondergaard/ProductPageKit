@@ -39,6 +39,10 @@ extension Prompter {
         try subset("Which custom pages?", flag: "--pages", pages, key: \.key, detail: \.name).arguments
     }
 
+    func experiments(_ experiments: [Experiment]) throws(MenuExit) -> [String] {
+        try subset("Which experiments?", flag: "--experiments", experiments, key: \.key, detail: \.name).arguments
+    }
+
     /// `--dry-run`, `--yes`, or neither to be asked once the plan is shown.
     func writeMode() throws(MenuExit) -> [String] {
         let modes: [(item: Picker.Item, arguments: [String])] = [
@@ -146,7 +150,7 @@ extension VideosCommand.Render: Guided {
 extension VideosCommand.Push: Guided {
     static func isAvailable(in project: Project) -> Bool { project.videos != nil }
     static func arguments(_ ask: Prompter, _ project: Project) throws(MenuExit) -> [String] {
-        try ask.locales(project.locales) + ask.writeMode()
+        try ask.experiments(project.experiments) + ask.locales(project.locales) + ask.writeMode()
     }
 }
 
@@ -162,7 +166,7 @@ extension PagesCommand.Push: Guided {
 extension ExperimentsCommand.Push: Guided {
     static func isAvailable(in project: Project) -> Bool { !project.experiments.isEmpty && project.frames != nil }
     static func arguments(_ ask: Prompter, _ project: Project) throws(MenuExit) -> [String] {
-        try ask.locales(project.locales) + ask.writeMode()
+        try ask.experiments(project.experiments) + ask.locales(project.locales) + ask.writeMode()
     }
 }
 

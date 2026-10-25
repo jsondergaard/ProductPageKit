@@ -200,7 +200,7 @@ Outside a terminal, no arguments prints the help.
 Pushes take `--dry-run` to print the plan and stop, and `--yes` to apply
 without asking; without a terminal, `--yes` is required. Commands that work
 per locale take `--locales`, and those that work on screenshots take
-`--platforms`.
+`--platforms`, except `experiments push`, which always writes iPhone and iPad.
 
 A locale pairs the catalog's code with App Store Connect's:
 `StoreLocale("nb", store: "no")`. A storefront the app has no localization
@@ -468,8 +468,9 @@ not have.
 missing, then creates its treatments and, for each locale, a localization with
 a screenshot set for iPhone and for iPad that holds exactly the framed shots.
 Files App Store Connect already holds are not uploaded again, and a changed
-traffic proportion is written. It never starts an experiment, submits it for
-review or sets its state; that stays in App Store Connect.
+traffic proportion is written. `--experiments` names the ones to push by key.
+It never starts an experiment, submits it for review or sets its state; that
+stays in App Store Connect.
 
 Only an experiment in `PREPARE_FOR_SUBMISSION`, `READY_FOR_REVIEW`, `REJECTED`
 or `DEVELOPER_REJECTED`, with no start date, is edited. For any other, the

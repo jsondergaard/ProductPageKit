@@ -100,6 +100,11 @@ public struct Session: Sendable {
         try selection(flag, from: project.customPages, name: \.key, kind: "custom page")
     }
 
+    /// The experiments an `--experiments` flag names, or every one.
+    func experiments(_ flag: String) throws -> [Experiment] {
+        try selection(flag, from: project.experiments, name: \.key, kind: "experiment")
+    }
+
     /// The App Store platforms a flag names, or every configured one.
     func storePlatforms(_ flag: String) throws -> [StorePlatform] {
         try selection(flag, from: project.storePlatforms, name: \.key, kind: "platform")

@@ -31,8 +31,8 @@ import Testing
         return fixture
     }
 
-    func push(_ fixture: Fixture, locales: String = "", options: WriteOptions = apply) async throws {
-        try await Commands.pushExperiments(fixture.session, locales: locales, options: options)
+    func push(_ fixture: Fixture, experiments: String = "", locales: String = "", options: WriteOptions = apply) async throws {
+        try await Commands.pushExperiments(fixture.session, experiments: experiments, locales: locales, options: options)
     }
 
     func resource(_ fixture: Fixture, _ type: String, _ name: String) throws -> FakeAppStoreConnect.Resource {
@@ -210,6 +210,48 @@ import Testing
         #expect(try resource(fixture, "appStoreVersionExperimentTreatments", "Story set").relationships["appStoreVersionExperiment"]?.id == id)
     }
 
+    @Test func aLocaleAddedLaterGetsALocalizationInTheTreatmentAlreadyThere() async throws {
+        let fixture = try fixture()
+        try await push(fixture)
+        fixture.project.locales.append(StoreLocale("de", store: "de-DE"))
+        try fixture.writeCatalog()
+        try fixture.writeCaptures()
+        fixture.fake.clearWrites()
+        fixture.console = RecordingConsole()
+
+        try await push(fixture)
+
+        #expect(fixture.fake.writes.filter { $0.hasPrefix("POST") && !$0.contains("appScreenshot") }
+            == ["POST /v1/appStoreVersionExperimentTreatmentLocalizations"])
+        #expect(fixture.fake.all("appStoreVersionExperimentTreatments").count == 1)
+        for display in [Self.iPhone, Self.iPad] {
+            #expect(try shots(fixture, treatment: "Story set", locale: "de-DE", display: display) == ["01_list.png", "02_home.png"])
+        }
+        #expect(!fixture.console.output.contains("en-US"))
+    }
+
+    @Test func onlyTheNamedExperimentsArePushed() async throws {
+        let fixture = try fixture()
+        fixture.project.experiments.append(
+            Experiment("other", name: "Other test", trafficProportion: 20, treatments: [Treatment("other", name: "Other", shots: ["home"])])
+        )
+        try fixture.writeCatalog()
+
+        try await push(fixture, experiments: "other")
+
+        #expect(fixture.fake.all("appStoreVersionExperiments").compactMap { $0.attributes["name"] as? String } == ["Other test"])
+        #expect(fixture.fake.all("appStoreVersionExperimentTreatments").compactMap { $0.attributes["name"] as? String } == ["Other"])
+        // Only the named experiment's treatment is framed.
+        #expect(try fixture.files(in: fixture.cache.framed).count == 4)
+    }
+
+    @Test func anUnknownExperimentIsNamedWithTheOnesThereAre() async throws {
+        let fixture = try fixture()
+        let error = await #expect(throws: Stopped.self) { try await push(fixture, experiments: "lead") }
+        #expect(error?.description == "Unknown experiment lead. This project has story.")
+        #expect(fixture.fake.writes.isEmpty)
+    }
+
     @Test func threeTreatmentsInThreeLocalesAreAllFilled() async throws {
         let german = StoreLocale("de", store: "de-DE")
         let fixture = try fixture(Self.experiment(treatments: [
@@ -326,7 +368,7 @@ import Testing
         fixture.fake.hasLiveIOSVersion = false
         await #expect(throws: ExitCode.self) { try await push(fixture) }
         #expect(fixture.fake.all("appStoreVersionExperiments").isEmpty)
-        #expect(fixture.console.output.contains("failed  create Story test experiment: App Store Connect creates a product page optimization only once the app has a live iOS version"))
+        #expect(fixture.console.output.contains("failed  create Story test experiment: App Store Connect creates an experiment only once the app has a live iOS version"))
         #expect(fixture.console.output.contains("failed  create Story test experiment · Story set: skipped, because creating Story test experiment failed"))
         #expect(fixture.fake.all("appScreenshots").isEmpty)
     }
@@ -356,6 +398,14 @@ import Testing
         #expect(theme.lists.count == 8)
         #expect(Set(theme.lists) == [.treatment("story")])
         #expect(theme.positions == [0, 1])
+    }
+
+    /// The store's own push frames the store's lists alone.
+    @Test func aScreenshotsPushFramesNoTreatment() async throws {
+        let fixture = try fixture()
+        try await Commands.pushScreenshots(fixture.session, platforms: "", locales: "", options: dryRun)
+        // Two locales: iPhone and iPad two shots each, the Mac one.
+        #expect(try fixture.files(in: fixture.cache.framed).count == 10)
     }
 
     @Test func exportKeepsTreatmentsApartFromTheStore() async throws {

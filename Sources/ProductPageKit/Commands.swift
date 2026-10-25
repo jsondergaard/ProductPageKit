@@ -208,9 +208,9 @@ enum Commands {
         try session.checkProject()
         let platforms = try session.platforms(platforms)
         let locales = try session.locales(locales)
-        let report = try await frameScreenshots(session, platforms: platforms, locales: locales)
+        let report = try await frameScreenshots(session, platforms: platforms, locales: locales, lists: { $0 == .store })
         let asc = try session.connect()
-        let planner = ScreenshotsPlanner(copy: try session.copy(), screenshots: report.store, platforms: platforms,
+        let planner = ScreenshotsPlanner(copy: try session.copy(), screenshots: report.screenshots, platforms: platforms,
                                          locales: locales, asc: asc)
         try await session.execute(try await planner.plan(), asc: asc, options: options)
     }
@@ -223,10 +223,9 @@ enum Commands {
         guard !pages.isEmpty else { throw Stopped(description: "The project has no custom pages (Project.customPages).") }
         let copy = try session.copy()
         try copy.problems().check()
-        let platforms = try session.platforms(platforms).filter { session.project.alternatePlatforms.contains($0.kind) }
+        let platforms = try session.platforms(platforms)
         let locales = try session.locales(locales)
-        let lists = Set(pages.map(\.list))
-        let report = try await frameScreenshots(session, platforms: platforms, locales: locales, lists: lists.contains)
+        let report = try await frameScreenshots(session, platforms: platforms, locales: locales, lists: Set(pages.map(\.list)).contains)
         let asc = try session.connect()
         let planner = CustomPagesPlanner(copy: copy, screenshots: report.screenshots, pages: pages, platforms: platforms.map(\.kind),
                                          locales: locales, asc: asc)
@@ -235,17 +234,17 @@ enum Commands {
 
     /// Frames, then makes each experiment hold its treatments' screenshots in
     /// every locale. Never starts an experiment or submits it for review.
-    static func pushExperiments(_ session: Session, locales: String, options: WriteOptions) async throws {
+    static func pushExperiments(_ session: Session, experiments: String, locales: String, options: WriteOptions) async throws {
         try session.checkProject()
-        let project = session.project
-        guard !project.experiments.isEmpty else { throw Stopped(description: "The project has no experiments (Project.experiments).") }
+        let experiments = try session.experiments(experiments)
+        guard !experiments.isEmpty else { throw Stopped(description: "The project has no experiments (Project.experiments).") }
         try session.copy().problems().check()
         let locales = try session.locales(locales)
-        let lists = Set(project.experiments.flatMap(\.treatments).map(\.list))
-        let report = try await frameScreenshots(session, platforms: project.platforms.filter { project.alternatePlatforms.contains($0.kind) },
-                                                locales: locales, lists: lists.contains)
+        let report = try await frameScreenshots(session, platforms: session.project.platforms, locales: locales,
+                                                lists: Set(experiments.flatMap(\.treatments).map(\.list)).contains)
         let asc = try session.connect()
-        let planner = ExperimentsPlanner(project: project, screenshots: report.screenshots, locales: locales, asc: asc)
+        let planner = ExperimentsPlanner(project: session.project, experiments: experiments, screenshots: report.screenshots,
+                                         locales: locales, asc: asc)
         try await session.execute(try await planner.plan(), asc: asc, options: options)
     }
 
@@ -440,11 +439,12 @@ struct ExperimentsCommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Frame, then make each experiment hold its treatments' screenshots in every locale. Never starts an experiment or submits it for review."
         )
+        @Option(help: "Comma-separated experiment keys. Default: all.") var experiments = ""
         @OptionGroup var locales: LocaleFlag
         @OptionGroup var options: WriteOptions
 
         func run() async throws {
-            try await Commands.pushExperiments(try Session.get(), locales: locales.locales, options: options)
+            try await Commands.pushExperiments(try Session.get(), experiments: experiments, locales: locales.locales, options: options)
         }
     }
 }

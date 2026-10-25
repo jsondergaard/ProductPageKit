@@ -8,13 +8,13 @@ import ProductPageKitFrames
 /// rather than one capture would.
 struct ComposedFrames: FrameTheme {
     func sources(for frame: FrameSubject) -> [FrameSource] {
-        switch (frame.shot.name, frame.page) {
+        switch (frame.shot.name, frame.list) {
         case ("devices", _):
             [.capture("home", on: .iPhone), .capture("home", on: .mac)]
         case ("free", _):
             [.component("value-list", on: frame.platform), .component("value-list", on: frame.platform).inPrimaryLocale(),
              .file("film.mp4")]
-        case ("server", let page?):
+        case ("server", .customPage(let page)):
             [.capture(Shot("library", variant: page), on: frame.platform), .component(Component("sources", variant: page), on: frame.platform)]
         default:
             [.capture(frame.shot, on: frame.platform)]
@@ -105,8 +105,8 @@ struct FilmFiles: CaptureFiles {
     }
 
     @Test func framesListEveryPageAfterThePlatforms() {
-        #expect(composed().frameSubjects.map { "\($0.platform.rawValue) \($0.shot) \($0.page ?? "-")" }
-                == ["ios devices -", "ios library -", "ios free -", "macos library -", "ios server pro", "ios free pro"])
+        #expect(composed().frameSubjects.map { "\($0.platform.rawValue) \($0.shot) \($0.list.folder ?? "-")" }
+                == ["ios devices -", "ios library -", "ios free -", "macos library -", "ios server page-pro", "ios free page-pro"])
     }
 
     @Test func aSourceOnAnUnconfiguredPlatformOrAMissingFileIsAProblem() {

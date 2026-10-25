@@ -45,7 +45,7 @@ struct CustomPagesPlanner {
         /// Nil leaves App Store Connect's, as for any copy not yet translated.
         let promotionalText: String?
         let keywords: [String]
-        let sets: [(platform: Platform.Kind, files: [LocalScreenshot])]
+        let sets: [LocalSet]
     }
 
     /// What a version's localization holds now.
@@ -105,13 +105,8 @@ struct CustomPagesPlanner {
             if !assign.isEmpty || !unassign.isEmpty {
                 changes.add(keywordChange(localizationKey, localization: localization, assign: assign, unassign: unassign))
             }
-            for (platform, files) in locale.sets {
-                let set = now.sets[platform.displayType]
-                let sync = SetSync(local: files, remote: set?.screenshots ?? [])
-                guard !sync.isEmpty else { continue }
-                changes.add(.syncSet("\(localizationKey) · \(platform.name)", platform: platform, owner: ScreenshotSetOwner.customPage,
-                                     localization: localization, planned: sync, existingSet: replacing ? nil : set?.id))
-            }
+            changes.syncSets(localizationKey, locale.sets, stored: now.sets, copied: replacing, owner: ScreenshotSetOwner.customPage,
+                             localization: localization)
         }
         guard !changes.changes.isEmpty else { return plan + changes }
         if replacing {
@@ -177,10 +172,7 @@ struct CustomPagesPlanner {
     private func contents(_ locale: Wanted, keywords: [String], localization: Ref, key: String) -> Plan {
         var plan = Plan()
         if !keywords.isEmpty { plan.add(keywordChange(key, localization: localization, assign: keywords, unassign: [])) }
-        for (platform, files) in locale.sets {
-            plan.add(.syncSet("\(key) · \(platform.name)", platform: platform, owner: ScreenshotSetOwner.customPage,
-                              localization: localization, planned: SetSync(local: files, remote: []), existingSet: nil))
-        }
+        plan.syncSets(key, locale.sets, owner: ScreenshotSetOwner.customPage, localization: localization)
         return plan
     }
 

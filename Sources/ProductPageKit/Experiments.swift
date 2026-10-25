@@ -12,6 +12,7 @@ import ProductPageKitCore
 /// counted. Nothing here starts an experiment, submits one, or sets its state.
 struct ExperimentsPlanner {
     let project: Project
+    let experiments: [Experiment]
     /// The treatments' framed screenshots.
     let screenshots: [FramedScreenshot]
     /// The locales written. A treatment lacking another locale shows the
@@ -23,7 +24,7 @@ struct ExperimentsPlanner {
         let app = try await asc.app(bundleID: project.bundleID)
         let records = try await asc.experiments(appID: app.id)
         var plan = Plan()
-        for experiment in project.experiments {
+        for experiment in experiments {
             plan = plan + (try await self.plan(experiment, record: records.first { $0.name == experiment.name }, appID: app.id))
         }
         return plan
@@ -105,13 +106,8 @@ struct ExperimentsPlanner {
                         treatmentID: try await run.id(treatmentRef), locale: locale.store))
                 })
             }
-            for (platform, files) in try screenshots.sets(of: treatment.list, on: project.alternatePlatforms, in: locale) {
-                let set = current[locale.store]?.sets[platform.displayType]
-                let sync = SetSync(local: files, remote: set?.screenshots ?? [])
-                guard !sync.isEmpty else { continue }
-                plan.add(.syncSet("\(localizationKey) · \(platform.name)", platform: platform, owner: ScreenshotSetOwner.treatment,
-                                  localization: localization, planned: sync, existingSet: set?.id))
-            }
+            plan.syncSets(localizationKey, try screenshots.sets(of: treatment.list, on: project.alternatePlatforms, in: locale),
+                          stored: current[locale.store]?.sets ?? [:], owner: ScreenshotSetOwner.treatment, localization: localization)
         }
 
         let uncovered = project.locales.filter { locale in
@@ -121,7 +117,7 @@ struct ExperimentsPlanner {
         }
         if !uncovered.isEmpty {
             plan.warn("\(key) does not cover \(uncovered.map(\.store).joined(separator: ", ")), where visitors shown the treatment "
-                      + "see the default page but still count in its share of the test; push those locales too")
+                      + "see the control but still count in its share of the test; push those locales too")
         }
         return plan
     }

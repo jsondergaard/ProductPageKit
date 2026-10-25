@@ -45,8 +45,8 @@ import Testing
 
     @Test func aThemeIsToldWhichTreatmentItFrames() {
         let subject = FrameSubject("server", on: .iPad, list: .treatment("story-b"))
-        #expect(subject.page == nil)
-        #expect(FrameSubject("server", on: .iPad, list: .customPage("pro")).page == "pro")
+        #expect("\(FrameSubject("server", on: .iPad, list: .customPage("pro")))" == "the iPad 13\" server screenshot of the pro page")
+        #expect("\(FrameSubject("server", on: .iPad))" == "the iPad 13\" server screenshot")
         #expect("\(subject)" == "the iPad 13\" server screenshot of the story-b treatment")
         #expect(FramedShot(shot: "server", list: .treatment("story-b"), position: 0, count: 1, platform: .iPad,
                            locale: StoreLocale("en", store: "en-US"), caption: Caption(headline: "x"), images: [:]).subject == subject)

@@ -114,12 +114,18 @@ import Testing
         #expect(ExperimentNotEditable(name: "Story set", state: nil, startDate: nil).description.hasPrefix("The Story set experiment exists and cannot be edited,"))
     }
 
-    @Test func aNameAppStoreConnectAlreadyHasIsAnExperimentItWillNotLetBeEdited() async throws {
+    /// The plan found no experiment by this name, so one App Store Connect
+    /// did not list, or made since, has it.
+    @Test func aNameAppStoreConnectAlreadyHasIsSaidToBeTaken() async throws {
         let transport = ScriptedTransport([(409, """
             {"errors": [{"status": "409", "code": "ENTITY_ERROR.ATTRIBUTE.INVALID.DUPLICATE", "title": "Duplicate name"}]}
             """)])
         let asc = AppStoreConnect(credentials: credentials(), transport: transport)
-        await #expect(throws: ExperimentNotEditable.self) { try await asc.createExperiment(appID: "app1", name: "Story set", trafficProportion: 50) }
+        let error = await #expect(throws: ExperimentNameTaken.self) {
+            try await asc.createExperiment(appID: "app1", name: "Story set", trafficProportion: 50)
+        }
+        #expect(error?.description == "App Store Connect already has an experiment named Story set, which it did not list when the push was planned, "
+            + "so none was created. Run the push again, or give the experiment another name.")
     }
 
     @Test func anAppNotOnSaleIsSaidSo() async throws {

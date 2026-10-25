@@ -46,11 +46,6 @@ public struct FrameSubject: Hashable, Sendable, CustomStringConvertible {
         self.list = list
     }
 
-    /// The custom page's key, for a page's screenshot.
-    public var page: String? {
-        if case .customPage(let key) = list { key } else { nil }
-    }
-
     /// `the iPhone 6.9" free screenshot of the pro page`.
     public var description: String { "the \(platform.name) \(shot) screenshot\(list.qualifier)" }
 }
