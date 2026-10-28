@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Network
+import Synchronization
 import ProductPageKitControl
 @testable import ProductPageKitCore
 import Testing
@@ -189,6 +190,19 @@ import Testing
         #expect(try String(contentsOf: file, encoding: .utf8) == "\(getpid())\n")
         first.release()
         try Lock(file, purpose: "capture").release()
+    }
+
+    @Test func aWaitingRunTakesTheLockOnceTheFirstReleases() async throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: "ProductPageKitLockTests-\(UUID().uuidString)/xcodebuild.lock")
+        let first = try Lock(file, purpose: "build")
+        let announced = Mutex<[Int32?]>([])
+        let second = Task { try await Lock.waiting(for: file, poll: .milliseconds(10)) { holder in announced.withLock { $0.append(holder) } } }
+        try await Task.sleep(for: .milliseconds(100))
+        first.release()
+        let lock = try await second.value
+        #expect(announced.withLock { $0 } == [getpid()])
+        #expect(throws: RunnerError.self) { try Lock(file, purpose: "build") }
+        lock.release()
     }
 }
 

@@ -6,11 +6,14 @@ import ProductPageKitCore
 /// Captures build Debug and signed: skipping signing also skips the
 /// entitlements, and an app launched without its `aps-environment` or network
 /// entitlement is not the app being photographed. Archives build Release.
+/// Builds and archives take turns with every other run's on this Mac
+/// (`Cache.buildLock`).
 struct XcodeBuild: Sendable {
     let xcode: XcodeProject
     let root: URL
     let cache: Cache
     let bundleID: String
+    let log: @Sendable (String) -> Void
 
     /// Builds the app, and the tests too when the run takes screens tests put
     /// up, and returns the app bundle.
@@ -20,6 +23,8 @@ struct XcodeBuild: Sendable {
     /// bundle before the package's build plugin has written its sources.
     func build(_ platform: Platform, destination: String, forTesting: Bool) async throws -> URL {
         let actions = forTesting ? ["build", "build-for-testing"] : ["build"]
+        let lock = try await exclusively()
+        defer { lock.release() }
         _ = try await Shell.run("/usr/bin/xcrun", ["xcodebuild"] + actions + arguments(destination: destination, configuration: "Debug"),
                                 in: root, log: cache.logs.appending(path: "\(platform.id)-build.log"),
                                 describedAs: "xcodebuild \(actions.joined(separator: " ")) for \(platform.name)")
@@ -39,6 +44,8 @@ struct XcodeBuild: Sendable {
 
     /// Archives the app for `platform` to `archive`, numbered `number`.
     func archive(_ platform: StorePlatform, number: BuildNumber, to archive: URL, key: APIKey) async throws {
+        let lock = try await exclusively()
+        defer { lock.release() }
         _ = try await Shell.run("/usr/bin/xcrun", ["xcodebuild", "archive", "-archivePath", archive.path]
                                     + arguments(destination: platform.archiveDestination, configuration: "Release")
                                     + key.arguments + ["CURRENT_PROJECT_VERSION=\(number)"],
@@ -54,6 +61,13 @@ struct XcodeBuild: Sendable {
                                                    "-allowProvisioningUpdates"] + key.arguments,
                                 in: root, log: cache.logs.appending(path: "\(archive.platform.key)-upload.log"),
                                 describedAs: "xcodebuild -exportArchive for \(archive.platform.name)")
+    }
+
+    /// The build lock, once no other run on this Mac is building.
+    private func exclusively() async throws -> Lock {
+        try await Lock.waiting(for: cache.buildLock) { [log] holder in
+            log("Waiting for another build on this Mac" + (holder.map { " (pid \($0))" } ?? "") + " to finish")
+        }
     }
 
     private func arguments(destination: String, configuration: String) -> [String] {

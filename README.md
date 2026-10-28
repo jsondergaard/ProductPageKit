@@ -247,6 +247,9 @@ comparison.
   draws the status bar and the system's own screens, stays in the primary
   locale unless `simulatorLocale: .captured` moves it to each in turn. That
   shows 09.41 in a Danish clock, but costs a reboot per locale on an iPad.
+- One `xcodebuild` build or archive runs at a time on the Mac, for every
+  app: a capture's build waits for another run's archive, and says so,
+  since two compiles at once run a Mac out of memory.
 - `build: .deleteAfterRun` deletes the build when a run ends, so the cache
   keeps only captures and what is drawn from them. The next run builds from
   scratch.

@@ -6,6 +6,7 @@ public import Foundation
 /// ```
 /// ~/Library/Caches/ProductPageKit/
 ///   locks/macos.lock                    the screen, shared by every app
+///   locks/xcodebuild.lock               one build or archive at a time, for every app
 ///   <bundle id>/
 ///     derived/                          one DerivedData for every platform
 ///     raw/<platform>/<locale>/<shot>.png
@@ -74,6 +75,10 @@ public struct Cache: Sendable {
     public func review(_ platform: Platform, _ kind: ReviewScreenshot.Kind) -> URL {
         directory.appending(path: "review/\(platform.id)/\(kind.rawValue).png")
     }
+
+    /// Held while `xcodebuild` builds or archives, for every app: two
+    /// compiles at once, an archive's above all, run a Mac out of memory.
+    public var buildLock: URL { root.appending(path: "locks/xcodebuild.lock") }
 
     /// Simulators are cloned per run, so two apps capture side by side. The
     /// Mac captures the front window, which there is one of.

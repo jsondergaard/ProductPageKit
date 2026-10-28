@@ -85,7 +85,7 @@ public struct ScreenshotRunner: Sendable {
             log("Running \(command)")
             _ = try await Shell.run(command, in: root)
         }
-        let build = XcodeBuild(xcode: xcode, root: root, cache: cache, bundleID: project.bundleID)
+        let build = XcodeBuild(xcode: xcode, root: root, cache: cache, bundleID: project.bundleID, log: log)
         // A platform's workers are what the machine can run at once, so
         // simulator platforms take turns: two at once ran CoreSimulator out
         // of memory. The next platform builds, and the Mac captures, meanwhile.

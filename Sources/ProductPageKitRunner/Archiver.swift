@@ -70,7 +70,7 @@ public struct Archiver: Sendable {
             log("Running \(command)")
             _ = try await Shell.run(command, in: root)
         }
-        let build = XcodeBuild(xcode: xcode, root: root, cache: cache, bundleID: project.bundleID)
+        let build = XcodeBuild(xcode: xcode, root: root, cache: cache, bundleID: project.bundleID, log: log)
         let folder = archives.appending(path: date.formatted(Date.ISO8601FormatStyle(timeZone: .current).year().month().day()))
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let (archived, finished) = AsyncStream.makeStream(of: Archive.self)
@@ -126,7 +126,7 @@ public struct Archiver: Sendable {
         try PropertyListSerialization.data(fromPropertyList: Self.exportOptions(builds.audience), format: .xml, options: 0)
             .write(to: options)
         log("Uploading \(project.name) \(archive.version) (\(archive.number)) for \(archive.platform.name)")
-        let build = XcodeBuild(xcode: xcode, root: root, cache: cache, bundleID: project.bundleID)
+        let build = XcodeBuild(xcode: xcode, root: root, cache: cache, bundleID: project.bundleID, log: log)
         try await build.export(archive, options: options, to: folder, key: key)
     }
 
