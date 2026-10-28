@@ -43,6 +43,24 @@ import ProductPageKitTestSupport
         #expect(fixture.fake.writes.isEmpty)
     }
 
+    /// A localization's sets are read once for all its iOS platforms, and a
+    /// set per platform is made, iPhone Duo's under its own display type.
+    @Test func eachLocalizationIsReadOnceForAllItsPlatforms() async throws {
+        let fixture = try Fixture()
+        fixture.project.platforms = [.iPhone(shots: ["home", "list"]), .iPad(shots: ["home"]), .iPhoneDuo(shots: ["home"])]
+        try fixture.writeCaptures()
+        try await push(fixture, platforms: "", locales: "")
+        #expect(Set(fixture.fake.all("appScreenshotSets").compactMap { $0.attributes["screenshotDisplayType"] as? String })
+                == ["APP_IPHONE_67", "APP_IPAD_PRO_3GEN_129", "APP_IPHONE_DUO"])
+
+        fixture.fake.clearReads()
+        try await Commands.pushScreenshots(fixture.session, platforms: "", locales: "", options: dryRun)
+        // The first page of each localization's sets; the fake pages two at a time.
+        let firstPages = fixture.fake.reads.filter { $0.contains("/appScreenshotSets?") && !$0.contains("cursor=") }
+        #expect(firstPages.count == 2, "\(fixture.fake.reads)")
+        #expect(fixture.console.output.hasSuffix("Nothing to change."))
+    }
+
     @Test func onlyAChangedCaptureIsUploaded() async throws {
         let fixture = try Fixture()
         try fixture.writeCaptures()

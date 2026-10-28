@@ -16,20 +16,23 @@ final class ScriptedTransport: ClientTransport, @unchecked Sendable {
 
     private let lock = NSLock()
     private var responses: [(status: Int, body: String)]
+    /// Extra header fields for the response at each index.
+    private let headers: [Int: HTTPFields]
     private(set) var sent: [Sent] = []
 
-    init(_ responses: [(status: Int, body: String)]) {
+    init(_ responses: [(status: Int, body: String)], headers: [Int: HTTPFields] = [:]) {
         self.responses = responses
+        self.headers = headers
     }
 
     func send(_ request: HTTPRequest, body: HTTPBody?, baseURL: URL, operationID: String) async throws -> (HTTPResponse, HTTPBody?) {
         var data = Data()
         if let body { data = try await Data(collecting: body, upTo: .max) }
-        let response = lock.withLock {
+        let (response, index) = lock.withLock {
             sent.append(Sent(request: request, body: data, baseURL: baseURL))
-            return responses.removeFirst()
+            return (responses.removeFirst(), sent.count - 1)
         }
-        var headers = HTTPFields()
+        var headers = self.headers[index] ?? HTTPFields()
         headers[.contentType] = "application/json"
         return (HTTPResponse(status: .init(code: response.status), headerFields: headers), HTTPBody(response.body))
     }
@@ -193,7 +196,7 @@ func credentials() -> Credentials {
                   {"method": "PUT", "url": "https://upload.example/part", "offset": 0, "length": 1}
                 ]}}, "links": {"self": "x"}}
                 """),
-            (500, ""),
+            (403, ""),
         ])
         let asc = AppStoreConnect(credentials: credentials(), transport: transport)
         await #expect(throws: UploadError.self) {
@@ -209,5 +212,83 @@ func credentials() -> Credentials {
 
     @Test func md5MatchesTheKnownDigest() {
         #expect(AppStoreConnect.md5(Data("abc".utf8)) == "900150983cd24fb0d6963f7d28e17f72")
+    }
+}
+
+/// The waits a retry slept, without sleeping.
+final class Waits: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [Duration] = []
+    var all: [Duration] { lock.withLock { recorded } }
+
+    var retry: Retry {
+        Retry(attempts: 3) { [self] wait in lock.withLock { recorded.append(wait) } }
+    }
+}
+
+@Suite struct RetryTests {
+    let appsPage = """
+        {"data": [{"type": "apps", "id": "1", "attributes": {"name": "Example"}}], "links": {"self": "x"}}
+        """
+
+    @Test func aBusyReadIsSentAgainAfterABackoff() async throws {
+        let waits = Waits()
+        let transport = ScriptedTransport([(503, ""), (500, ""), (200, appsPage)])
+        let asc = AppStoreConnect(credentials: credentials(), transport: transport, retry: waits.retry)
+        #expect(try await asc.app(bundleID: "com.example.app").id == "1")
+        #expect(transport.sent.count == 3)
+        #expect(waits.all == [.seconds(2), .seconds(4)])
+    }
+
+    /// Too many requests means nothing was done, so even a create is sent
+    /// again, after the wait App Store Connect asks for.
+    @Test func aRateLimitedCreateWaitsWhatRetryAfterAsks() async throws {
+        let waits = Waits()
+        var asked = HTTPFields()
+        asked[.retryAfter] = "7"
+        let transport = ScriptedTransport([(429, ""), (201, """
+            {"data": {"type": "appScreenshotSets", "id": "set1", "attributes": {"screenshotDisplayType": "APP_IPHONE_67"}}, "links": {"self": "x"}}
+            """)], headers: [0: asked])
+        let asc = AppStoreConnect(credentials: credentials(), transport: transport, retry: waits.retry)
+        #expect(try await asc.createScreenshotSet(.version("loc1"), displayType: "APP_IPHONE_67") == "set1")
+        #expect(waits.all == [.seconds(7)])
+        #expect(transport.sent.map(\.body) == [transport.sent[0].body, transport.sent[0].body])
+    }
+
+    /// A create answered with a server error may have gone through.
+    @Test func aCreateWithAServerErrorIsNotSentAgain() async throws {
+        let waits = Waits()
+        let transport = ScriptedTransport([(500, "")])
+        let asc = AppStoreConnect(credentials: credentials(), transport: transport, retry: waits.retry)
+        await #expect(throws: ASCError.self) {
+            try await asc.createScreenshotSet(.version("loc1"), displayType: "APP_IPHONE_67")
+        }
+        #expect(transport.sent.count == 1)
+        #expect(waits.all.isEmpty)
+    }
+
+    @Test func aReadThatStaysBusyFailsAfterTheLastAttempt() async throws {
+        let waits = Waits()
+        let transport = ScriptedTransport([(503, ""), (503, ""), (503, "")])
+        let asc = AppStoreConnect(credentials: credentials(), transport: transport, retry: waits.retry)
+        await #expect { try await asc.app(bundleID: "com.example.app") } throws: { ($0 as? ASCError)?.status == 503 }
+        #expect(transport.sent.count == 3)
+    }
+
+    @Test func aBusyUploadPartIsSentAgain() async throws {
+        let waits = Waits()
+        let transport = ScriptedTransport([
+            (201, """
+                {"data": {"type": "appScreenshots", "id": "s1", "attributes": {"uploadOperations": [
+                  {"method": "PUT", "url": "https://upload.example/part", "offset": 0, "length": 1}
+                ]}}, "links": {"self": "x"}}
+                """),
+            (503, ""), (200, ""),
+            (200, #"{"data": {"type": "appScreenshots", "id": "s1"}, "links": {"self": "x"}}"#),
+        ])
+        let asc = AppStoreConnect(credentials: credentials(), transport: transport, retry: waits.retry)
+        #expect(try await asc.uploadScreenshot(setID: "set1", fileName: "01.png", data: Data([1])) == "s1")
+        #expect(transport.sent.filter { $0.baseURL.host() == "upload.example" }.map(\.body) == [Data([1]), Data([1])])
+        #expect(waits.all == [.seconds(2)])
     }
 }

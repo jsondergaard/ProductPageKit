@@ -208,6 +208,14 @@ without asking; without a terminal, `--yes` is required. Commands that work
 per locale take `--locales`, and those that work on screenshots take
 `--platforms`, except `experiments push`, which always writes iPhone and iPad.
 
+A push uploads screenshot sets six at a time; creating a localization or a
+page runs alone, before what goes into it. A request App Store Connect or its
+storage answers with 429 is sent again after the wait it asks for, and a read
+or an upload part answered with a 5xx after 2, 4, 8, 16 and 32 seconds; a
+create answered with a 5xx is not, since it may have gone through. Framed
+PNGs with grain run to several megabytes each; `output: .jpeg(quality: 0.95)`
+makes them about a fifth of that.
+
 A locale pairs the catalog's code with App Store Connect's:
 `StoreLocale("nb", store: "no")`. A storefront the app has no localization
 for names the language its screenshots are captured in:

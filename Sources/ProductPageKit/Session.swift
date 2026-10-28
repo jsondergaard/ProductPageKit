@@ -123,6 +123,11 @@ public struct Session: Sendable {
 
     func warn(_ message: String) { console.print("warning: \(message)") }
 
+    /// Concurrent changes in flight at once: enough to keep an upload link
+    /// busy through each change's API calls, and few enough not to crowd App
+    /// Store Connect, whose busy answers `Retry` waits out.
+    static let concurrentChanges = 6
+
     /// Prints the plan, asks, and applies it: the end of every write command.
     func execute(_ plan: Plan, asc: AppStoreConnect, options: WriteOptions) async throws {
         guard try confirm(plan, options: options) else { return }
@@ -154,20 +159,47 @@ public struct Session: Sendable {
     }
 
     /// Makes every change of a confirmed plan, carrying on past a failed one,
-    /// and fails when any did.
-    func apply(_ plan: Plan, asc: AppStoreConnect) async throws {
+    /// and fails when any did. Concurrent changes run up to `width` at a
+    /// time, each reported as it ends; any other runs alone, in plan order.
+    func apply(_ plan: Plan, asc: AppStoreConnect, width: Int = Self.concurrentChanges) async throws {
         let count = counted(plan.changes.count, "change")
         let run = Run(asc: asc)
         var failed = 0
-        for change in plan.changes {
+        func report(_ change: Change, _ error: (any Error)?) {
             let label = "\(change.action.rawValue) \(change.subject)"
-            do {
-                try await change.perform(run)
-                console.print("  done    \(label)")
-            } catch {
+            if let error {
                 failed += 1
                 console.print("  failed  \(label): \(error)")
+            } else {
+                console.print("  done    \(label)")
             }
+        }
+        @Sendable func perform(_ change: Change) async -> (Change, (any Error)?) {
+            do {
+                try await change.perform(run)
+                return (change, nil)
+            } catch {
+                return (change, error)
+            }
+        }
+        await withTaskGroup(of: (Change, (any Error)?).self) { group in
+            var running = 0
+            for change in plan.changes {
+                if !change.concurrent {
+                    while let (done, error) = await group.next() { report(done, error) }
+                    running = 0
+                    let (done, error) = await perform(change)
+                    report(done, error)
+                    continue
+                }
+                if running == width, let (done, error) = await group.next() {
+                    report(done, error)
+                    running -= 1
+                }
+                group.addTask { await perform(change) }
+                running += 1
+            }
+            while let (done, error) = await group.next() { report(done, error) }
         }
         guard failed == 0 else {
             console.print("\(plan.changes.count - failed) of \(count) applied, \(failed) failed.")
@@ -227,6 +259,22 @@ private func selection<Item>(_ flag: String, from items: [Item], name: (Item) ->
         throw Stopped(description: "Unknown \(kind) \(unknown.joined(separator: ", ")). This project has \(known.joined(separator: ", ")).")
     }
     return items.filter { names.contains(name($0)) }
+}
+
+extension Collection where Element: Sendable {
+    /// `transform` of each element, up to `width` at a time, in the
+    /// collection's order.
+    func concurrentMap<T: Sendable>(width: Int, _ transform: @escaping @Sendable (Element) async throws -> T) async throws -> [T] {
+        try await withThrowingTaskGroup(of: (Int, T).self) { group in
+            var results = [T?](repeating: nil, count: count)
+            for (index, element) in enumerated() {
+                if index >= width, let (done, value) = try await group.next() { results[done] = value }
+                group.addTask { (index, try await transform(element)) }
+            }
+            while let (done, value) = try await group.next() { results[done] = value }
+            return results.map { $0! }
+        }
+    }
 }
 
 extension Optional {

@@ -5,25 +5,29 @@ import OpenAPIURLSession
 
 /// The App Store Connect API, for one API key.
 ///
-/// Every request is signed with a short-lived token. A response of 400 or
-/// more throws `ASCError` with App Store Connect's own explanation. Asset
-/// uploads go through the same transport as API calls, to the URLs App Store
-/// Connect hands out for them.
+/// Every request is signed with a short-lived token. A busy answer is sent
+/// again as `retry` allows, and a response of 400 or more then throws
+/// `ASCError` with App Store Connect's own explanation. Asset uploads go
+/// through the same transport and retries as API calls, to the URLs App
+/// Store Connect hands out for them.
 public struct AppStoreConnect: Sendable {
     let client: Client
     let transport: any ClientTransport
+    let retry: Retry
 
     public init(credentials: Credentials) {
         self.init(credentials: credentials, transport: URLSessionTransport())
     }
 
-    public init(credentials: Credentials, transport: any ClientTransport) {
+    public init(credentials: Credentials, transport: any ClientTransport, retry: Retry = Retry()) {
         self.transport = transport
+        self.retry = retry
         client = Client(
             serverURL: URL(string: "https://api.appstoreconnect.apple.com")!,
             configuration: Configuration(dateTranscoder: AppStoreConnectDates()),
             transport: transport,
-            middlewares: [AuthenticationMiddleware(signer: TokenSigner(credentials: credentials)), ErrorMiddleware()]
+            middlewares: [AuthenticationMiddleware(signer: TokenSigner(credentials: credentials)), ErrorMiddleware(),
+                          RetryMiddleware(retry: retry)]
         )
     }
 

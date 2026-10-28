@@ -20,6 +20,10 @@ struct Change: Sendable {
     var lines: [String] = []
     /// The key `Run.created` records this change's new resource under.
     var creates: String?
+    /// Whether it may run at the same time as the changes around it that may
+    /// too. One that may not runs alone, after everything before it, so what
+    /// it creates exists for what comes after.
+    var concurrent = false
     let perform: @Sendable (Run) async throws -> Void
 }
 

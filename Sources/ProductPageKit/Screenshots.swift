@@ -178,7 +178,7 @@ extension Change {
     /// as it is.
     static func syncSet(_ subject: String, platform: Platform.Kind, owner: @escaping @Sendable (String) -> ScreenshotSetOwner,
                         localization: Ref, basis: SetBasis, existingSet: String?) -> Change {
-        Change(action: .upload, subject: subject, lines: basis.lines) { run in
+        Change(action: .upload, subject: subject, lines: basis.lines, concurrent: true) { run in
             let owner = owner(try await run.id(localization))
             let setID: String
             if let existingSet {
@@ -223,6 +223,9 @@ struct ScreenshotsPlanner {
         let app = try await asc.app(bundleID: project.bundleID)
         let versions = try await asc.editableVersions(appID: app.id)
         var localizations: [String: [String: Localized<VersionText>]] = [:]
+        // Each set to sync, in plan order, after the change that creates its
+        // localization where one does.
+        var sets: [(platform: Platform, locale: StoreLocale, localization: Ref, files: [LocalScreenshot], plan: Plan)] = []
         for platform in platforms {
             guard let version = versions[platform.storePlatform] else {
                 plan.warn("\(platform.storePlatform.name) has no editable version, so \(platform.name) screenshots are left as they are")
@@ -238,40 +241,45 @@ struct ScreenshotsPlanner {
                     continue
                 }
                 let localizationKey = "\(version.platform.name) \(version.versionString) · \(locale.store)"
+                var creation = Plan()
                 let localization: Ref
                 if let existing = localizations[version.id]?[locale.store] {
                     localization = .existing(existing.id)
-                } else if plan.changes.contains(where: { $0.creates == localizationKey }) {
+                } else if sets.contains(where: { set in set.plan.changes.contains { $0.creates == localizationKey } }) {
                     localization = .planned(localizationKey)
                 } else {
                     // App Store Connect shows a bare locale empty and refuses
                     // to submit it, so a new one gets its copy.
                     let text = copy.versionText(locale, version: version.versionString, creating: true)
                     localization = .planned(localizationKey)
-                    plan.add(Change(action: .create, subject: localizationKey, fields: text.fieldChanges(from: nil),
-                                    creates: localizationKey) { run in
+                    creation.add(Change(action: .create, subject: localizationKey, fields: text.fieldChanges(from: nil),
+                                        creates: localizationKey) { run in
                         let id = try await run.asc.createVersionLocalization(versionID: version.id, locale: locale.store, text: text)
                         await run.record(localizationKey, id: id)
                     })
                 }
-                plan = plan + (try await planSet(platform, locale: locale, localization: localization, files: files))
+                sets.append((platform, locale, localization, files, creation))
             }
         }
-        return plan
-    }
-
-    func planSet(_ platform: Platform, locale: StoreLocale, localization: Ref, files: [LocalScreenshot]) async throws -> Plan {
-        var plan = Plan()
-        let subject = "\(platform.name) · \(locale.store)"
-        var setID: String?
-        if case .existing(let id) = localization {
-            setID = try await asc.screenshotSets(.version(id))[platform.displayType]
+        // What each existing localization holds, read once for all its
+        // platforms, several localizations at a time.
+        let existing = Array(Set(sets.compactMap { set -> String? in
+            if case .existing(let id) = set.localization { id } else { nil }
+        }))
+        let asc = asc
+        let held = try await existing.concurrentMap(width: Session.concurrentChanges) { id in
+            (id, try await asc.storedSets(.version(id)))
         }
-        let remote = try await setID.asyncMap { try await asc.screenshots(setID: $0) } ?? []
-        let sync = SetSync(local: files, remote: remote)
-        guard !sync.isEmpty else { return plan }
-        plan.add(.syncSet(subject, platform: platform.kind, owner: ScreenshotSetOwner.version, localization: localization,
-                          basis: .read(sync), existingSet: setID))
+        let stored = Dictionary(uniqueKeysWithValues: held)
+        for set in sets {
+            plan = plan + set.plan
+            let storedSet: StoredSet? = if case .existing(let id) = set.localization { stored[id]?[set.platform.displayType] } else { nil }
+            let sync = SetSync(local: set.files, remote: storedSet?.screenshots ?? [])
+            guard !sync.isEmpty else { continue }
+            plan.add(.syncSet("\(set.platform.name) · \(set.locale.store)", platform: set.platform.kind,
+                              owner: ScreenshotSetOwner.version, localization: set.localization,
+                              basis: .read(sync), existingSet: storedSet?.id))
+        }
         return plan
     }
 }

@@ -25,6 +25,8 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
     private(set) var uploaded: [String: Data] = [:]
     /// Every write, as `METHOD /path`.
     private(set) var writes: [String] = []
+    /// Every API read's path and query.
+    private(set) var reads: [String] = []
     /// GETs a video stays processing for after its upload is committed.
     var processingReads = 1
     /// The terms each locale's live iOS keywords offer a custom page.
@@ -63,6 +65,8 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
     }
 
     func clearWrites() { lock.withLock { writes = [] } }
+
+    func clearReads() { lock.withLock { reads = [] } }
 
     /// Changes a resource as App Store Connect would on its own, such as App
     /// Review approving it.
@@ -135,6 +139,7 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
 
     private func handle(_ request: HTTPRequest, body: Data, baseURL: URL) -> (Int, Any?) {
         let components = URLComponents(string: "https://host" + (request.path ?? ""))!
+        if request.method == .get, baseURL.host() != "upload.example" { reads.append(request.path ?? "") }
         let query = Dictionary((components.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { $1 })
         if baseURL.host() == "upload.example" {
             // Apple's object storage refuses a part with no declared length.
