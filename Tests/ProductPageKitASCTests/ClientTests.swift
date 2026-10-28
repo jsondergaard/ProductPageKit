@@ -18,20 +18,25 @@ final class ScriptedTransport: ClientTransport, @unchecked Sendable {
     private var responses: [(status: Int, body: String)]
     /// Extra header fields for the response at each index.
     private let headers: [Int: HTTPFields]
+    /// The sends, by index, that get no answer in time instead of a response.
+    private let timeouts: Set<Int>
     private(set) var sent: [Sent] = []
 
-    init(_ responses: [(status: Int, body: String)], headers: [Int: HTTPFields] = [:]) {
+    init(_ responses: [(status: Int, body: String)], headers: [Int: HTTPFields] = [:], timeouts: Set<Int> = []) {
         self.responses = responses
         self.headers = headers
+        self.timeouts = timeouts
     }
 
     func send(_ request: HTTPRequest, body: HTTPBody?, baseURL: URL, operationID: String) async throws -> (HTTPResponse, HTTPBody?) {
         var data = Data()
         if let body { data = try await Data(collecting: body, upTo: .max) }
-        let (response, index) = lock.withLock {
+        let index = lock.withLock {
             sent.append(Sent(request: request, body: data, baseURL: baseURL))
-            return (responses.removeFirst(), sent.count - 1)
+            return sent.count - 1
         }
+        if timeouts.contains(index) { throw URLError(.timedOut) }
+        let response = lock.withLock { responses.removeFirst() }
         var headers = self.headers[index] ?? HTTPFields()
         headers[.contentType] = "application/json"
         return (HTTPResponse(status: .init(code: response.status), headerFields: headers), HTTPBody(response.body))
@@ -273,6 +278,29 @@ final class Waits: @unchecked Sendable {
         let asc = AppStoreConnect(credentials: credentials(), transport: transport, retry: waits.retry)
         await #expect { try await asc.app(bundleID: "com.example.app") } throws: { ($0 as? ASCError)?.status == 503 }
         #expect(transport.sent.count == 3)
+    }
+
+    @Test func aReadWithNoAnswerInTimeIsSentAgain() async throws {
+        let waits = Waits()
+        let transport = ScriptedTransport([(200, appsPage)], timeouts: [0])
+        let asc = AppStoreConnect(credentials: credentials(), transport: transport, retry: waits.retry)
+        #expect(try await asc.app(bundleID: "com.example.app").id == "1")
+        #expect(transport.sent.count == 2)
+        #expect(waits.all == [.seconds(2)])
+    }
+
+    /// A create that timed out may have gone through, so it is reported in
+    /// one line rather than sent again.
+    @Test func aCreateWithNoAnswerInTimeIsReportedInOneLine() async throws {
+        let waits = Waits()
+        let transport = ScriptedTransport([], timeouts: [0])
+        let asc = AppStoreConnect(credentials: credentials(), transport: transport, retry: waits.retry)
+        await #expect {
+            try await asc.createScreenshotSet(.version("loc1"), displayType: "APP_IPHONE_67")
+        } throws: { error in
+            "\(error)" == "POST /v1/appScreenshotSets -> \(URLError(.timedOut).localizedDescription)"
+        }
+        #expect(transport.sent.count == 1)
     }
 
     @Test func aBusyUploadPartIsSentAgain() async throws {

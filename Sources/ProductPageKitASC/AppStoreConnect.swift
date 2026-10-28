@@ -25,19 +25,21 @@ public struct AppStoreConnect: Sendable {
         client = Client(
             serverURL: URL(string: "https://api.appstoreconnect.apple.com")!,
             configuration: Configuration(dateTranscoder: AppStoreConnectDates()),
-            transport: transport,
-            middlewares: [AuthenticationMiddleware(signer: TokenSigner(credentials: credentials)), ErrorMiddleware(),
-                          RetryMiddleware(retry: retry)]
+            transport: RetryingTransport(base: transport, retry: retry),
+            middlewares: [AuthenticationMiddleware(signer: TokenSigner(credentials: credentials)), ErrorMiddleware()]
         )
     }
 
-    /// Runs a generated call, surfacing the `ASCError` a middleware threw
-    /// rather than the client's wrapper around it.
+    /// Runs a generated call, surfacing the `ASCError` a middleware threw, or
+    /// the network failure, rather than the client's wrapper around it, which
+    /// prints the whole request.
     func call<T>(_ body: () async throws -> T) async throws -> T {
         do {
             return try await body()
         } catch let error as ClientError {
-            throw (error.underlyingError as? ASCError) ?? error
+            if let asc = error.underlyingError as? ASCError { throw asc }
+            throw TransportFailure(method: error.request?.method.rawValue ?? "", path: error.request?.path ?? "",
+                                   reason: error.underlyingError.localizedDescription)
         }
     }
 
@@ -65,6 +67,14 @@ public struct AppStoreConnect: Sendable {
     static func cursor(fromNext next: String) -> String? {
         URLComponents(string: next)?.queryItems?.first { $0.name == "cursor" }?.value
     }
+}
+
+/// A request that got no answer: `PATCH /v1/appScreenshots/1 -> The request timed out.`
+public struct TransportFailure: Error, CustomStringConvertible, Sendable {
+    public let method: String
+    public let path: String
+    public let reason: String
+    public var description: String { "\(method) \(path) -> \(reason)" }
 }
 
 public struct MissingData: Error, CustomStringConvertible {

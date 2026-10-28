@@ -210,9 +210,10 @@ per locale take `--locales`, and those that work on screenshots take
 
 A push uploads screenshot sets six at a time; creating a localization or a
 page runs alone, before what goes into it. A request App Store Connect or its
-storage answers with 429 is sent again after the wait it asks for, and a read
-or an upload part answered with a 5xx after 2, 4, 8, 16 and 32 seconds; a
-create answered with a 5xx is not, since it may have gone through. Framed
+storage answers with 429 is sent again after the wait it asks for, and a read,
+update, delete or upload part answered with a 5xx, or not answered in time,
+after 2, 4, 8, 16 and 32 seconds; a create is not, since it may have gone
+through, and the next push clears what it left. Framed
 PNGs with grain run to several megabytes each; `output: .jpeg(quality: 0.95)`
 makes them about a fifth of that.
 

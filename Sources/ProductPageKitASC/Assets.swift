@@ -257,8 +257,13 @@ extension AppStoreConnect {
             // Apple's object storage answers 411 to a part sent without one.
             request.headerFields[.contentLength] = String(chunk.count)
             let base = URL(string: "\(scheme)://\(host)")!
-            let (response, _) = try await retry.send(request, body: HTTPBody(chunk)) { [transport] request, body in
-                try await transport.send(request, body: body, baseURL: base, operationID: "upload")
+            let response: HTTPResponse
+            do {
+                (response, _) = try await retry.send(request, body: HTTPBody(chunk)) { [transport] request, body in
+                    try await transport.send(request, body: body, baseURL: base, operationID: "upload")
+                }
+            } catch let error as URLError {
+                throw TransportFailure(method: method.rawValue, path: url.absoluteString, reason: error.localizedDescription)
             }
             guard (200..<300).contains(response.status.code) else {
                 throw UploadError.rejected(status: response.status.code, url: url)
