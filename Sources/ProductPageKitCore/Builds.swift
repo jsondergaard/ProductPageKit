@@ -9,8 +9,9 @@ public struct Builds: Sendable {
     public var audience: TestFlightAudience
     /// Shell commands run at the repository root after each archive, with
     /// its path in `PRODUCTPAGE_ARCHIVE`, such as one that sends its symbols
-    /// to a crash reporter. Every archive and its commands finish before
-    /// anything uploads, so one that fails uploads nothing.
+    /// to a crash reporter. They run while the next platform archives, and
+    /// every archive and its commands finish before anything uploads, so one
+    /// that fails uploads nothing.
     public var afterArchive: [String]
 
     public init(

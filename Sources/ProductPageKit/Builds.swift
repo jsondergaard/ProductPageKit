@@ -71,7 +71,7 @@ extension Commands {
         var plan = Plan()
         for platform in platforms {
             plan.add(Change(action: .upload, subject: "\(session.project.name) \(platform.name) build \(number)",
-                            lines: ["for \(builds.audience)"]) { _ in
+                            lines: ["for \(builds.audience)"], concurrent: true) { _ in
                 try await archiver.upload(try await shelf.archive(for: platform))
             })
         }

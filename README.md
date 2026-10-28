@@ -568,9 +568,10 @@ values with `ProductSource.catalogue(ProductCatalogue(...))`.
 `Project.builds` archives the app from `xcode` in Release, signed
 automatically with the API key, which needs App Manager access. `builds
 upload` reads the highest build number App Store Connect has on any platform,
-shows a plan with the next one, and asks. It then archives every platform
-before uploading any, so a platform that fails to build or a failed
-`afterArchive` command uploads nothing. Archives go to
+shows a plan with the next one, and asks. It then archives the
+platforms one after another, and uploads them all at once after the last, so
+a platform that fails to build or a failed `afterArchive` command uploads
+nothing. Archives go to
 `~/Library/Developer/Xcode/Archives`, where the Organizer lists them.
 
 ```swift
@@ -591,7 +592,7 @@ builds: Builds(
   testers only, and App Store Connect never offers it for review.
   `.everyone` also allows external testing and App Store submission.
 - `afterArchive` commands run at the repository root after each archive,
-  with its path in `PRODUCTPAGE_ARCHIVE`.
+  with its path in `PRODUCTPAGE_ARCHIVE`, while the next platform archives.
 
 The number is passed to `xcodebuild` as `CURRENT_PROJECT_VERSION`, so the
 app's and its extensions' `CFBundleVersion` must come from

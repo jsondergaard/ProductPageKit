@@ -59,9 +59,12 @@ public struct Archiver: Sendable {
         self.log = log
     }
 
-    /// Archives every platform as build `number`, running the project's
-    /// `afterArchive` commands on each, and returns the archives. Any failure
-    /// stops the run, so nothing is returned to upload.
+    /// Archives every platform as build `number`, one at a time, and returns
+    /// the archives once the project's `afterArchive` commands have run on
+    /// each. An archive's commands run while the next platform archives:
+    /// they are mostly uploads, and two archives at once need more memory
+    /// than most Macs have. Any failure stops the run, so nothing is
+    /// returned to upload.
     public func archive(_ platforms: [StorePlatform], number: BuildNumber, date: Date = Date()) async throws -> [Archive] {
         for command in xcode.before {
             log("Running \(command)")
@@ -70,24 +73,47 @@ public struct Archiver: Sendable {
         let build = XcodeBuild(xcode: xcode, root: root, cache: cache, bundleID: project.bundleID)
         let folder = archives.appending(path: date.formatted(Date.ISO8601FormatStyle(timeZone: .current).year().month().day()))
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        var made: [Archive] = []
-        for platform in platforms {
-            let url = folder.appending(path: "\(project.name) \(platform.name) \(number).xcarchive")
-            try? FileManager.default.removeItem(at: url)
-            log("Archiving \(project.name) build \(number) for \(platform.name)")
-            try await build.archive(platform, number: number, to: url, key: key)
-            let archive = try read(url, platform: platform, number: number)
-            log("Archived \(project.name) \(archive.version) (\(number)) for \(platform.name): \(url.path)")
-            for command in builds.afterArchive {
-                log("Running \(command)")
-                let output = try await Shell.run("/bin/zsh", ["-c", command], in: root,
-                                                 environment: [Builds.archiveVariable: url.path], describedAs: command)
-                let text = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !text.isEmpty { log(text) }
+        let (archived, finished) = AsyncStream.makeStream(of: Archive.self)
+        return try await withThrowingTaskGroup(of: [Archive].self) { group in
+            group.addTask {
+                defer { finished.finish() }
+                var made: [Archive] = []
+                for platform in platforms {
+                    let archive = try await archive(platform, number: number, in: folder, with: build)
+                    made.append(archive)
+                    finished.yield(archive)
+                }
+                return made
             }
-            made.append(archive)
+            group.addTask {
+                for await archive in archived { try await runAfterArchive(archive) }
+                return []
+            }
+            // The first failure leaves this loop, which cancels the other task.
+            var made: [Archive] = []
+            for try await archives in group { made += archives }
+            return made
         }
-        return made
+    }
+
+    private func archive(_ platform: StorePlatform, number: BuildNumber, in folder: URL, with build: XcodeBuild) async throws -> Archive {
+        let url = folder.appending(path: "\(project.name) \(platform.name) \(number).xcarchive")
+        try? FileManager.default.removeItem(at: url)
+        log("Archiving \(project.name) build \(number) for \(platform.name)")
+        try await build.archive(platform, number: number, to: url, key: key)
+        let archive = try read(url, platform: platform, number: number)
+        log("Archived \(project.name) \(archive.version) (\(number)) for \(platform.name): \(url.path)")
+        return archive
+    }
+
+    private func runAfterArchive(_ archive: Archive) async throws {
+        for command in builds.afterArchive {
+            log("Running \(command) for \(archive.platform.name)")
+            let output = try await Shell.run("/bin/zsh", ["-c", command], in: root,
+                                             environment: [Builds.archiveVariable: archive.url.path], describedAs: command)
+            let text = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty { log(text) }
+        }
     }
 
     /// Uploads `archive` to App Store Connect, which processes it before
