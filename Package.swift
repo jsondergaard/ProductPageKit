@@ -2,7 +2,8 @@
 import PackageDescription
 
 // ProductPageKit keeps an app's App Store product page in its repository:
-// screenshots, videos, text metadata, release notes and in-app products.
+// screenshots, videos, text metadata, release notes and in-app products. It
+// also uploads the app's builds to TestFlight.
 //
 // - ProductPageKitCapture: what an app links, DEBUG only. Its scenes, the
 //   director that moves between them, and the ready signal. Built on
@@ -17,7 +18,8 @@ import PackageDescription
 // - ProductPageKitASC: the App Store Connect API client, generated from
 //   Apple's OpenAPI document, and the operations built on it.
 // - ProductPageKitRunner: builds the app, drives simulators and the Mac app
-//   through the control protocol, and writes raw captures to the cache.
+//   through the control protocol, and writes raw captures to the cache. It
+//   also archives the app and uploads the archives.
 // - ProductPageKit: the commands, and `ProductPageKit.main(project)` for each
 //   app's tools executable.
 

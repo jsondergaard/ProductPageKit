@@ -110,6 +110,12 @@ public struct Session: Sendable {
         try selection(flag, from: project.storePlatforms, name: \.key, kind: "platform")
     }
 
+    /// The App Store platforms builds are archived for that a flag names, or
+    /// every one.
+    func buildPlatforms(_ flag: String) throws -> [StorePlatform] {
+        try selection(flag, from: project.buildPlatforms, name: \.key, kind: "platform")
+    }
+
     func motionTheme() throws -> any MotionTheme {
         guard let theme = project.videos else { throw Stopped(description: "The project has no videos (Project.videos).") }
         return theme
@@ -119,10 +125,17 @@ public struct Session: Sendable {
 
     /// Prints the plan, asks, and applies it: the end of every write command.
     func execute(_ plan: Plan, asc: AppStoreConnect, options: WriteOptions) async throws {
+        guard try confirm(plan, options: options) else { return }
+        try await apply(plan, asc: asc)
+    }
+
+    /// Prints the plan and asks. False when there is nothing to change or
+    /// the run is dry; a refusal throws.
+    func confirm(_ plan: Plan, options: WriteOptions) throws -> Bool {
         for warning in plan.warnings { warn(warning) }
         guard !plan.changes.isEmpty else {
             console.print("Nothing to change.")
-            return
+            return false
         }
         console.print("")
         for line in plan.lines { console.print(line) }
@@ -130,13 +143,20 @@ public struct Session: Sendable {
         console.print("")
         if options.dryRun {
             console.print("Dry run: \(count), nothing written.")
-            return
+            return false
         }
         if !options.yes {
             guard console.isInteractive else { throw Stopped(description: "Pass --yes to apply without a terminal.") }
             let answer = console.readLine(prompt: "Apply \(count)? [y/N] ")?.trimmingCharacters(in: .whitespaces).lowercased()
             guard answer == "y" || answer == "yes" else { throw Stopped(description: "Nothing changed.") }
         }
+        return true
+    }
+
+    /// Makes every change of a confirmed plan, carrying on past a failed one,
+    /// and fails when any did.
+    func apply(_ plan: Plan, asc: AppStoreConnect) async throws {
+        let count = counted(plan.changes.count, "change")
         let run = Run(asc: asc)
         var failed = 0
         for change in plan.changes {

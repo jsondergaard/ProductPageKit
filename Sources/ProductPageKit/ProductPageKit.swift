@@ -28,9 +28,9 @@ public enum ProductPageKit {
 struct Root: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "productpage",
-        abstract: "Keeps the App Store product page in the repository.",
+        abstract: "Keeps the App Store product page in the repository, and uploads the app's builds to TestFlight.",
         subcommands: [MetadataCommand.self, ReleaseCommand.self, ProductsCommand.self, ScreenshotsCommand.self, VideosCommand.self, PagesCommand.self,
-                      ExperimentsCommand.self, ReviewCommand.self, ExportCommand.self, CacheCommand.self, DoctorCommand.self]
+                      ExperimentsCommand.self, BuildsCommand.self, ReviewCommand.self, ExportCommand.self, CacheCommand.self, DoctorCommand.self]
     )
 
     /// With no arguments: the menu in a terminal, the help anywhere else.

@@ -16,6 +16,10 @@ public enum StorePlatform: String, CaseIterable, Sendable {
         case .visionOS: "visionOS"
         }
     }
+
+    /// The platform's name on the command line and in file names: `ios`,
+    /// `macos`.
+    public var key: String { rawValue.lowercased().replacingOccurrences(of: "_", with: "") }
 }
 
 /// A device the product page shows screenshots for, the scenes captured on it

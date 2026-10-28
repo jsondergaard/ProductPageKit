@@ -1,5 +1,5 @@
 public import CryptoKit
-import Foundation
+public import Foundation
 public import ProductPageKitCore
 
 /// An App Store Connect API key: App Store Connect ▸ Users and Access ▸
@@ -8,11 +8,15 @@ public struct Credentials: Sendable {
     public let issuerID: String
     public let keyID: String
     public let privateKey: P256.Signing.PrivateKey
+    /// The `.p8` the key was read from, which `xcodebuild` signs and uploads
+    /// with. Nil for a key made in memory.
+    public let keyFile: URL?
 
-    public init(issuerID: String, keyID: String, privateKey: P256.Signing.PrivateKey) {
+    public init(issuerID: String, keyID: String, privateKey: P256.Signing.PrivateKey, keyFile: URL? = nil) {
         self.issuerID = issuerID
         self.keyID = keyID
         self.privateKey = privateKey
+        self.keyFile = keyFile
     }
 
     /// `ASC_ISSUER_ID`, `ASC_KEY_ID` and `ASC_KEY_PATH`, the `.p8` file.
@@ -30,6 +34,7 @@ public struct Credentials: Sendable {
         }
         issuerID = environment["ASC_ISSUER_ID"]!
         keyID = environment["ASC_KEY_ID"]!
+        keyFile = URL(filePath: path)
     }
 }
 

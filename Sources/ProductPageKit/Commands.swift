@@ -260,11 +260,6 @@ enum Commands {
     }
 }
 
-extension StorePlatform {
-    /// The platform's name on the command line.
-    var key: String { rawValue.lowercased().replacingOccurrences(of: "_", with: "") }
-}
-
 // MARK: - Command line
 
 struct MetadataCommand: AsyncParsableCommand {

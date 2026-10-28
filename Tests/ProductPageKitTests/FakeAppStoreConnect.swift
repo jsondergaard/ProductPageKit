@@ -251,6 +251,7 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
     private func collection(_ type: String, query: [String: String]) -> [Resource] {
         order.compactMap { resources[$0] }.filter { resource in
             resource.type == type && (query["filter[bundleId]"].map { resource.attributes["bundleId"] as? String == $0 } ?? true)
+                && (query["filter[app]"].map { resource.relationships["app"]?.id == $0 } ?? true)
         }
     }
 
@@ -585,7 +586,7 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
         attributes.removeValue(forKey: "bytes")
         attributes.removeValue(forKey: "territories")
         var object: [String: Any] = ["type": resource.type, "id": resource.id, "attributes": attributes]
-        if ["subscriptionPrices", "subscriptionPricePoints", "inAppPurchasePrices", "subscriptionIntroductoryOffers"].contains(resource.type) {
+        if ["subscriptionPrices", "subscriptionPricePoints", "inAppPurchasePrices", "subscriptionIntroductoryOffers", "builds"].contains(resource.type) {
             object["relationships"] = resource.relationships.mapValues { ["data": ["type": $0.type, "id": $0.id]] }
         }
         return object

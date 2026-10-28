@@ -170,6 +170,20 @@ extension ExperimentsCommand.Push: Guided {
     }
 }
 
+extension BuildsCommand.List: Guided {
+    static func isAvailable(in project: Project) -> Bool { project.builds != nil }
+    static func arguments(_ ask: Prompter, _ project: Project) throws(MenuExit) -> [String] {
+        try ask.storePlatforms(project.buildPlatforms)
+    }
+}
+
+extension BuildsCommand.Upload: Guided {
+    static func isAvailable(in project: Project) -> Bool { project.builds != nil && project.xcode != nil }
+    static func arguments(_ ask: Prompter, _ project: Project) throws(MenuExit) -> [String] {
+        try ask.storePlatforms(project.buildPlatforms) + ask.writeMode()
+    }
+}
+
 extension ReviewCommand: Guided {}
 
 extension ExportCommand: Guided {

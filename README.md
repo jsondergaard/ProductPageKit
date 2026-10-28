@@ -15,9 +15,12 @@ pushes it to App Store Connect from one command-line tool:
 - product page optimization experiments, with up to three screenshot
   treatments
 - App Review screenshots of the in-app purchases
+- TestFlight builds, archived for every platform and uploaded with the same
+  API key
 
 The app decides when a screen is ready, so a capture never waits a fixed
-time. Generated files live in `~/Library/Caches`, never in the repository.
+time. Generated files live in `~/Library/Caches`, and archives in Xcode's
+Archives folder, never in the repository.
 Every command that writes to App Store Connect reads first, prints a plan of
 the changes, asks once, then applies exactly that plan.
 
@@ -100,7 +103,8 @@ let example = Project(
         source: .command("swift run --quiet --package-path Server AppStoreProducts"),
         serverNotifications: URL(string: "https://example.com/v1/app-store/notifications"),
         storeKit: StoreKitFile(path: "App/Example.storekit", teamID: "ABCDE12345")
-    )
+    ),
+    builds: Builds()
 )
 ```
 
@@ -193,6 +197,8 @@ Outside a terminal, no arguments prints the help.
 | `products check` | Checks the product catalogue. |
 | `products push` | Makes the in-app products match the catalogue: groups, subscriptions, one-time purchases, names, availability, prices, free trials, App Review screenshots and server notification URLs. |
 | `products storekit` | Writes the StoreKit configuration file from the catalogue. |
+| `builds list` | Lists the builds App Store Connect has, newest first: version, platform, processing state and who can test them. |
+| `builds upload` | Archives every platform as the next build, then uploads each to TestFlight. Never submits for review. |
 | `export <dir>` | Copies the framed screenshots, the videos and the renders out of the cache. A custom page's or treatment's screenshots go in a folder of their own. |
 | `cache size`, `cache prune` | Shows what the cache holds; deletes the build, its logs, and files nothing points to. |
 | `doctor` | Checks Xcode, the simulators, Screen Recording and the App Store Connect credentials. |
@@ -544,6 +550,41 @@ values with `ProductSource.catalogue(ProductCatalogue(...))`.
 - Products App Store Connect has and the catalogue does not are reported,
   never removed.
 
+## TestFlight builds
+
+`Project.builds` archives the app from `xcode` in Release, signed
+automatically with the API key, which needs App Manager access. `builds
+upload` reads the highest build number App Store Connect has on any platform,
+shows a plan with the next one, and asks. It then archives every platform
+before uploading any, so a platform that fails to build or a failed
+`afterArchive` command uploads nothing. Archives go to
+`~/Library/Developer/Xcode/Archives`, where the Organizer lists them.
+
+```swift
+builds: Builds(
+    platforms: [.iOS, .tvOS, .macOS],
+    numbering: .minor,
+    audience: .internalOnly,
+    afterArchive: ["sentry-cli debug-files upload --wait \"$PRODUCTPAGE_ARCHIVE\""]
+)
+```
+
+- `platforms` defaults to the product page's App Store platforms.
+- `numbering: .next` takes one more than the highest build, 88 after 87.
+  `.minor` takes the next minor number, 88.1 after 88, for an app that CI
+  also uploads with whole numbers, such as Xcode Cloud; CI's next build, 89,
+  still sorts above it.
+- `audience: .internalOnly`, the default, offers the build to internal
+  testers only, and App Store Connect never offers it for review.
+  `.everyone` also allows external testing and App Store submission.
+- `afterArchive` commands run at the repository root after each archive,
+  with its path in `PRODUCTPAGE_ARCHIVE`.
+
+The number is passed to `xcodebuild` as `CURRENT_PROJECT_VERSION`, so the
+app's and its extensions' `CFBundleVersion` must come from
+`$(CURRENT_PROJECT_VERSION)`. An archive that carries another number stops the
+run before anything uploads.
+
 ## The cache
 
 ```
@@ -576,8 +617,8 @@ images. After a deliberate change to how something draws,
 Integration tests run every command, and the review server over HTTP,
 against an in-memory App Store Connect. They also capture
 `Fixtures/SampleApp` on iPhone and Apple TV simulators and on the Mac, then
-frame and render it, and check that a Release build of the app contains none
-of ProductPageKit. The Mac capture needs Screen Recording permission for the
+frame and render it, check that a Release build of the app contains none of
+ProductPageKit, and archive it for the Mac as a numbered build. The Mac capture needs Screen Recording permission for the
 terminal and the screen unlocked.
 
 An opt-in live test reads a real app and writes nothing:

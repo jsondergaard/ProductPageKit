@@ -10,7 +10,7 @@ public struct Project: Sendable {
     /// The app's name, as the commands print it and as uploaded videos are named.
     public var name: String
     public var bundleID: String
-    /// The app's Xcode project, for capturing screenshots.
+    /// The app's Xcode project, for capturing screenshots and archiving.
     public var xcode: XcodeProject?
     /// The first is the primary locale: the one fields App Store Connect does
     /// not localize are written in.
@@ -49,6 +49,8 @@ public struct Project: Sendable {
     public var icon: String?
     public var metadata: Metadata
     public var products: Products?
+    /// TestFlight uploads.
+    public var builds: Builds?
 
     public init(
         name: String,
@@ -71,7 +73,8 @@ public struct Project: Sendable {
         output: ImageFormat = .png,
         icon: String? = nil,
         metadata: Metadata,
-        products: Products? = nil
+        products: Products? = nil,
+        builds: Builds? = nil
     ) {
         self.name = name
         self.bundleID = bundleID
@@ -94,6 +97,7 @@ public struct Project: Sendable {
         self.icon = icon
         self.metadata = metadata
         self.products = products
+        self.builds = builds
     }
 
     public var primaryLocale: StoreLocale { locales[0] }
@@ -106,6 +110,10 @@ public struct Project: Sendable {
         }
         return seen
     }
+
+    /// The App Store platforms builds are archived for: those `builds`
+    /// names, or else the product page's.
+    public var buildPlatforms: [StorePlatform] { builds?.platforms ?? storePlatforms }
 
     public func locale(_ code: String) -> StoreLocale? {
         locales.first { $0.code == code }
@@ -330,6 +338,13 @@ public struct Project: Sendable {
         let kinds = reviewScreenshots.map(\.kind)
         for kind in kinds.repeated {
             problems.append("the \(kind.title) review screenshot is listed twice")
+        }
+        if builds != nil {
+            if xcode == nil { problems.append("builds are archived from the Xcode project, and none is configured") }
+            if buildPlatforms.isEmpty { problems.append("builds name no platforms") }
+            for platform in buildPlatforms.map(\.name).repeated {
+                problems.append("builds list \(platform) twice")
+            }
         }
         return problems.sorted()
     }

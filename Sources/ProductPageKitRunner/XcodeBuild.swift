@@ -3,9 +3,9 @@ import ProductPageKitCore
 
 /// `xcodebuild` for one project, every platform into one DerivedData.
 ///
-/// Debug and signed: skipping signing also skips the entitlements, and an app
-/// launched without its `aps-environment` or network entitlement is not the
-/// app being photographed.
+/// Captures build Debug and signed: skipping signing also skips the
+/// entitlements, and an app launched without its `aps-environment` or network
+/// entitlement is not the app being photographed. Archives build Release.
 struct XcodeBuild: Sendable {
     let xcode: XcodeProject
     let root: URL
@@ -20,7 +20,7 @@ struct XcodeBuild: Sendable {
     /// bundle before the package's build plugin has written its sources.
     func build(_ platform: Platform, destination: String, forTesting: Bool) async throws -> URL {
         let actions = forTesting ? ["build", "build-for-testing"] : ["build"]
-        _ = try await Shell.run("/usr/bin/xcrun", ["xcodebuild"] + actions + arguments(destination: destination),
+        _ = try await Shell.run("/usr/bin/xcrun", ["xcodebuild"] + actions + arguments(destination: destination, configuration: "Debug"),
                                 in: root, log: cache.logs.appending(path: "\(platform.id)-build.log"),
                                 describedAs: "xcodebuild \(actions.joined(separator: " ")) for \(platform.name)")
         return try app(platform)
@@ -33,18 +33,37 @@ struct XcodeBuild: Sendable {
         // `xcodebuild` hands `TEST_RUNNER_<name>` to the test host as `<name>`.
         let passed = Dictionary(uniqueKeysWithValues: environment.map { ("TEST_RUNNER_\($0.key)", $0.value) })
         _ = try await Shell.run("/usr/bin/xcrun", ["xcodebuild", "test-without-building", "-only-testing:\(test)"]
-                                    + arguments(destination: destination),
+                                    + arguments(destination: destination, configuration: "Debug"),
                                 in: root, environment: passed, log: log, describedAs: "the test \(test)")
     }
 
-    private func arguments(destination: String) -> [String] {
+    /// Archives the app for `platform` to `archive`, numbered `number`.
+    func archive(_ platform: StorePlatform, number: BuildNumber, to archive: URL, key: APIKey) async throws {
+        _ = try await Shell.run("/usr/bin/xcrun", ["xcodebuild", "archive", "-archivePath", archive.path]
+                                    + arguments(destination: platform.archiveDestination, configuration: "Release")
+                                    + key.arguments + ["CURRENT_PROJECT_VERSION=\(number)"],
+                                in: root, log: cache.logs.appending(path: "\(platform.key)-archive.log"),
+                                describedAs: "xcodebuild archive for \(platform.name)")
+    }
+
+    /// Exports `archive` with `options`, which upload it when their
+    /// destination is `upload`, into `folder`.
+    func export(_ archive: Archive, options: URL, to folder: URL, key: APIKey) async throws {
+        _ = try await Shell.run("/usr/bin/xcrun", ["xcodebuild", "-exportArchive", "-archivePath", archive.url.path,
+                                                   "-exportOptionsPlist", options.path, "-exportPath", folder.path,
+                                                   "-allowProvisioningUpdates"] + key.arguments,
+                                in: root, log: cache.logs.appending(path: "\(archive.platform.key)-upload.log"),
+                                describedAs: "xcodebuild -exportArchive for \(archive.platform.name)")
+    }
+
+    private func arguments(destination: String, configuration: String) -> [String] {
         let container: [String] = switch xcode.container {
         case .project(let path): ["-project", path]
         case .workspace(let path): ["-workspace", path]
         }
         return container + [
             "-scheme", xcode.scheme,
-            "-configuration", "Debug",
+            "-configuration", configuration,
             "-destination", destination,
             "-derivedDataPath", cache.derivedData.path,
             "-skipPackagePluginValidation", "-skipMacroValidation", "-allowProvisioningUpdates",

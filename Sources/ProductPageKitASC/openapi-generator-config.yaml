@@ -16,6 +16,9 @@ filter:
     - apps_appStoreVersions_getToManyRelated
     - appStoreVersions_updateInstance
 
+    # Builds
+    - builds_getCollection
+
     # Text metadata
     - appInfos_appInfoLocalizations_getToManyRelated
     - appInfoLocalizations_createInstance
