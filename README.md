@@ -5,7 +5,7 @@ pushes it to App Store Connect from one command-line tool:
 
 - the copy, in an Xcode String Catalog with translation states, and a local
   page for reviewing and editing it
-- screenshots captured from the running app on iPhone, iPad, Mac and Apple TV
+- screenshots captured from the running app on iPhone, iPad, iPhone Duo, Mac and Apple TV
   simulators, then framed in the app's own look by Swift code you write
 - the product page header and search result videos, rendered from the same
   captures
@@ -228,8 +228,12 @@ holds still when `\.isCapturingScreenshots` is true; one that cannot, such
 as playing video, is marked `.captureMoving()` and left out of the
 comparison.
 
-- iPhone, iPad and Apple TV run on cloned simulators, one for every four
-  cores and at most one per locale, with 9:41 in the status bar.
+- iPhone, iPad, iPhone Duo and Apple TV run on cloned simulators, one for
+  every four cores and at most one per locale, with 9:41 in the status bar.
+  Each runs on the newest runtime that has its device, and iPhone 6.9"
+  never on a foldable. iPhone Duo's simulators boot folded, so each is
+  opened flat after it boots, by the hinge event Device Hub's slider sends,
+  and captured on its inner display, which is landscape.
 - The app runs in each locale it captures. The simulator itself, which
   draws the status bar and the system's own screens, stays in the primary
   locale unless `simulatorLocale: .captured` moves it to each in turn. That

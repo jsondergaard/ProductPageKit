@@ -48,6 +48,9 @@ struct SimulatorWorker: CaptureDevice {
     /// Whether the device draws the Dynamic Island, which a screenshot
     /// composed without the display's mask shows black.
     let drawsSensorBar: Bool
+    /// How a foldable is opened flat after each boot, and photographed on
+    /// its inner display. Nil for a device that does not fold.
+    let unfolding: Unfolding?
 
     var name: String { "simulator \(udid)" }
     var testDestination: String { "platform=\(os) Simulator,id=\(udid)" }
@@ -87,6 +90,7 @@ struct SimulatorWorker: CaptureDevice {
             try await simulators.boot(udid)
         }
         try await simulators.prepare(udid, time: time, appearance: appearance, contentSize: contentSize)
+        if let unfolding { try await simulators.unfold(udid, unfolding) }
     }
 
     /// An iPhone's and an iPad's appearance and text size are the
@@ -106,7 +110,9 @@ struct SimulatorWorker: CaptureDevice {
     }
 
     func frames(for ready: Ready) async throws -> @Sendable () async throws -> Frame {
-        { [simulators, udid, drawsSensorBar] in try await simulators.screenshot(udid, masked: drawsSensorBar) }
+        { [simulators, udid, drawsSensorBar, unfolding] in
+            try await simulators.screenshot(udid, display: unfolding?.display, masked: drawsSensorBar)
+        }
     }
 
     /// A simulator app draws its components itself.

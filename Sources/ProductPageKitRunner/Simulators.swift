@@ -60,16 +60,39 @@ struct Simulators: Sendable {
 
     /// Whether the device's type draws a sensor bar, the Dynamic Island.
     func drawsSensorBar(_ udid: String) async throws -> Bool {
+        guard let bundle = try await typeBundle(udid),
+              let profile = NSDictionary(contentsOf: bundle.appending(path: "Contents/Resources/profile.plist"))
+        else { return false }
+        return profile["sensorBarImage"] != nil
+    }
+
+    /// A foldable's inner display, the larger of its two, by screen ID. Nil
+    /// for a device that does not fold.
+    func innerDisplay(_ udid: String) async throws -> Int? {
+        guard let bundle = try await typeBundle(udid) else { return nil }
+        return Self.innerDisplay(Self.capabilities(at: bundle))
+    }
+
+    static func innerDisplay(_ capabilities: [String: Any]?) -> Int? {
+        let displays = (capabilities?["displays"] as? [[String: Any]] ?? []).filter { $0["displayType"] as? String == "integrated" }
+        guard displays.count > 1 else { return nil }
+        let inner = displays.max { area($0) < area($1) }
+        return inner.flatMap { number($0["screenID"]) }
+    }
+
+    private static func area(_ display: [String: Any]) -> Int {
+        (number(display["width"]) ?? 0) * (number(display["height"]) ?? 0)
+    }
+
+    /// The bundle of the device's type, which describes its screens.
+    private func typeBundle(_ udid: String) async throws -> URL? {
         struct List: Decodable {
             struct DeviceType: Decodable { let identifier: String; let bundlePath: String }
             let devicetypes: [DeviceType]
         }
         let identifier = try await device(udid).deviceTypeIdentifier
         let types = try JSONDecoder().decode(List.self, from: try await simctl(["list", "devicetypes", "-j"])).devicetypes
-        guard let type = types.first(where: { $0.identifier == identifier }),
-              let profile = NSDictionary(contentsOf: URL(filePath: type.bundlePath).appending(path: "Contents/Resources/profile.plist"))
-        else { return false }
-        return profile["sensorBarImage"] != nil
+        return types.first { $0.identifier == identifier }.map { URL(filePath: $0.bundlePath) }
     }
 
     func device(_ udid: String) async throws -> Device {
@@ -79,28 +102,38 @@ struct Simulators: Sendable {
         return device
     }
 
-    /// The device type and runtime a platform is captured on: the newest
-    /// available runtime for its OS, and in it the named device or the one
-    /// with the most pixels.
+    /// The device type and runtime a platform is captured on.
     func resolve(_ device: SimulatorDevice, for kind: Platform.Kind) async throws -> (type: DeviceType, runtime: Runtime) {
-        let (os, family) = Self.family(kind)
-        guard let runtime = try await runtimes()
-            .filter({ $0.platform == os && $0.isAvailable })
-            .max(by: { $0.version.compare($1.version, options: .numeric) == .orderedAscending })
-        else { throw RunnerError.noRuntime(os) }
-        let types = runtime.supportedDeviceTypes.filter { $0.productFamily == family }
+        try Self.pick(device, for: kind, in: try await runtimes())
+    }
+
+    /// The newest available runtime for the platform's OS that has the
+    /// device, and in it the named device or the one with the most pixels. A
+    /// point release can ship for one new device alone, as iOS 27.1 did for
+    /// iPhone Duo, so the newest runtime may have no other.
+    static func pick(_ device: SimulatorDevice, for kind: Platform.Kind, in runtimes: [Runtime]) throws
+        -> (type: DeviceType, runtime: Runtime) {
+        let os = family(kind).os
+        let newestFirst = runtimes
+            .filter { $0.platform == os && $0.isAvailable }
+            .sorted { $0.version.compare($1.version, options: .numeric) == .orderedDescending }
+        guard let newest = newestFirst.first else { throw RunnerError.noRuntime(os) }
+        for runtime in newestFirst {
+            let candidates = types(runtime.supportedDeviceTypes, for: kind)
+            switch device {
+            case .named(let name):
+                if let type = candidates.first(where: { $0.name == name }) { return (type, runtime) }
+            case .largest:
+                let sized = candidates.compactMap { type in pixels(type).map { (type, $0) } }
+                if let largest = sized.max(by: { ($0.1, $0.0.name) < ($1.1, $1.0.name) }) { return (largest.0, runtime) }
+            }
+        }
         switch device {
         case .named(let name):
-            guard let type = types.first(where: { $0.name == name }) else {
-                throw RunnerError.noDeviceType(name, runtime: runtime.name, available: types.map(\.name))
-            }
-            return (type, runtime)
+            throw RunnerError.noDeviceType(name, runtime: newest.name,
+                                           available: types(newest.supportedDeviceTypes, for: kind).map(\.name))
         case .largest:
-            let sized = types.compactMap { type in Self.pixels(type).map { (type, $0) } }
-            guard let largest = sized.max(by: { ($0.1, $0.0.name) < ($1.1, $1.0.name) }) else {
-                throw RunnerError.noDeviceType("any \(family)", runtime: runtime.name, available: [])
-            }
-            return (largest.0, runtime)
+            throw RunnerError.noDeviceType("any \(describe(kind))", runtime: newest.name, available: [])
         }
     }
 
@@ -291,9 +324,9 @@ struct Simulators: Sendable {
     /// while after the bridge restarts, one comes without the mask and with
     /// the sensor bar drawn black over the status bar; with `masked`, that
     /// one is taken again.
-    func screenshot(_ udid: String, masked: Bool) async throws -> Frame {
+    func screenshot(_ udid: String, display: Int?, masked: Bool) async throws -> Frame {
         for _ in 0..<Self.compositionAttempts {
-            let frame = try await screenshot(udid)
+            let frame = try await screenshot(udid, display: display)
             if !masked || frame.isMasked { return frame }
             try await Task.sleep(for: .milliseconds(250))
         }
@@ -303,38 +336,89 @@ struct Simulators: Sendable {
     /// A quarter of a second apart: a busy machine has taken several seconds.
     static let compositionAttempts = 80
 
-    /// `simctl io` writes to a file and nowhere else.
-    private func screenshot(_ udid: String) async throws -> Frame {
+    /// `simctl io` writes to a file and nowhere else. Without `display`, the
+    /// main display, a foldable's outer one, which is composed with its mask;
+    /// another display is only when asked.
+    private func screenshot(_ udid: String, display: Int?) async throws -> Frame {
         let file = FileManager.default.temporaryDirectory.appending(path: "ProductPageKit-\(udid).png")
         defer { try? FileManager.default.removeItem(at: file) }
-        _ = try await simctl(["io", udid, "screenshot", "--type=png", file.path])
+        let other = display.map { ["--display=\($0)", "--mask=black"] } ?? []
+        _ = try await simctl(["io", udid, "screenshot", "--type=png"] + other + [file.path])
         return try Frame(png: try Data(contentsOf: file))
     }
+
+    /// Opens a foldable flat, then returns once its inner display draws and
+    /// has come to rest, so an app launched next starts there. The system
+    /// ignores the hinge for some seconds after `boot` returns, so the angle
+    /// is sent again each second until it takes.
+    func unfold(_ udid: String, _ unfolding: Unfolding) async throws {
+        for _ in 0..<Self.unfoldAttempts {
+            if try await screenshot(udid, display: unfolding.display).showsContent {
+                _ = try await FrameStability().settle("simulator \(udid) opening flat") {
+                    try await screenshot(udid, display: unfolding.display)
+                }
+                return
+            }
+            _ = try await simctl(["spawn", udid, unfolding.hinge.tool.path, "\(Hinge.open)"])
+            try await Task.sleep(for: .seconds(1))
+        }
+        throw RunnerError.timedOut("simulator \(udid) to unfold")
+    }
+
+    /// A second apart: an idle Mac takes about ten.
+    static let unfoldAttempts = 90
 
     private func simctl(_ arguments: [String]) async throws -> Data {
         try await Shell.run("/usr/bin/xcrun", ["simctl"] + arguments)
     }
 
-    /// The runtime platform and device family a platform runs in.
-    static func family(_ kind: Platform.Kind) -> (os: String, family: String) {
+    /// The runtime platform and device family a platform runs in, and
+    /// whether its devices fold.
+    static func family(_ kind: Platform.Kind) -> (os: String, family: String, folds: Bool) {
         switch kind {
-        case .iPhone: ("iOS", "iPhone")
-        case .iPad: ("iOS", "iPad")
-        case .appleTV: ("tvOS", "Apple TV")
-        case .mac: ("macOS", "Mac")
+        case .iPhone: ("iOS", "iPhone", false)
+        case .iPad: ("iOS", "iPad", false)
+        case .iPhoneDuo: ("iOS", "iPhone", true)
+        case .appleTV: ("tvOS", "Apple TV", false)
+        case .mac: ("macOS", "Mac", false)
         }
     }
 
-    /// The main screen's size in pixels, from the device type's bundle.
+    /// The device types a platform is captured on: its family's, and of an
+    /// iPhone's only the foldables for iPhone Duo and never them for
+    /// iPhone 6.9".
+    static func types(_ types: [DeviceType], for kind: Platform.Kind) -> [DeviceType] {
+        let (_, family, folds) = family(kind)
+        return types.filter { $0.productFamily == family && Self.folds($0) == folds }
+    }
+
+    /// `iPhone`, or `foldable iPhone`.
+    static func describe(_ kind: Platform.Kind) -> String {
+        let (_, family, folds) = family(kind)
+        return folds ? "foldable \(family)" : family
+    }
+
+    /// Whether the device type has two built-in displays, the outer and the
+    /// inner of a foldable.
+    static func folds(_ type: DeviceType) -> Bool {
+        innerDisplay(capabilities(at: URL(filePath: type.bundlePath))) != nil
+    }
+
+    /// The main screen's size in pixels, from the device type's bundle. A
+    /// foldable's main screen is its outer display.
     static func pixels(_ type: DeviceType) -> Int? {
-        let url = URL(filePath: type.bundlePath).appending(path: "Contents/Resources/capabilities.plist")
-        guard let data = try? Data(contentsOf: url),
-              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              let capabilities = plist["capabilities"] as? [String: Any],
-              let screen = capabilities["ScreenDimensionsCapability"] as? [String: Any],
+        guard let screen = capabilities(at: URL(filePath: type.bundlePath))?["ScreenDimensionsCapability"] as? [String: Any],
               let width = number(screen["main-screen-width"]), let height = number(screen["main-screen-height"])
         else { return nil }
         return width * height
+    }
+
+    private static func capabilities(at bundle: URL) -> [String: Any]? {
+        let url = bundle.appending(path: "Contents/Resources/capabilities.plist")
+        guard let data = try? Data(contentsOf: url),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        else { return nil }
+        return plist["capabilities"] as? [String: Any]
     }
 
     /// Apple writes these as numbers for phones and strings for Apple TV.

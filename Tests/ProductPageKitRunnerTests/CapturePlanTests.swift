@@ -181,4 +181,11 @@ struct DevicesFrames: FrameTheme {
             "  App Review screenshot of the in-app purchases, from ExampleTests/Review/capture()",
         ])
     }
+
+    @Test func aDryRunNamesTheFoldableIPhoneDuoIsCapturedOn() throws {
+        var example = project(locales: ["en"])
+        example.platforms = [.iPhoneDuo(shots: ["inbox"])]
+        let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), cores: 8)
+        #expect(plan.lines.first == "iPhone Duo: the largest foldable iPhone simulator, 1 worker")
+    }
 }

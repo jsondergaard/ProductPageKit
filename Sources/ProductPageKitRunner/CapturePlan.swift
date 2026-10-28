@@ -144,7 +144,7 @@ public struct CapturePlan: Sendable {
     public var lines: [String] {
         targets.flatMap { target -> [String] in
             let place = switch target.platform.capture {
-            case .simulator(.largest): "the largest \(Simulators.family(target.platform.kind).family) simulator"
+            case .simulator(.largest): "the largest \(Simulators.describe(target.platform.kind)) simulator"
             case .simulator(.named(let name)): name
             case .window(let size): size.map { "a \(Int($0.width)) × \(Int($0.height)) window" } ?? "a window"
             }

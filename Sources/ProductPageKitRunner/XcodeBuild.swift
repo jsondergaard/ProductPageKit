@@ -87,7 +87,7 @@ struct XcodeBuild: Sendable {
 
     static func productsFolder(_ kind: Platform.Kind) -> String {
         switch kind {
-        case .iPhone, .iPad: "Debug-iphonesimulator"
+        case .iPhone, .iPad, .iPhoneDuo: "Debug-iphonesimulator"
         case .appleTV: "Debug-appletvsimulator"
         case .mac: "Debug"
         }

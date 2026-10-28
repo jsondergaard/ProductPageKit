@@ -36,6 +36,20 @@ struct Frame: @unchecked Sendable {
         return pixel[0] == 0 && pixel[1] == 0 && pixel[2] == 0 && pixel[3] == 255
     }
 
+    /// Whether the frame shows anything: a display that is off photographs
+    /// black. Read from a 64 × 64 reduction, which is enough to tell.
+    var showsContent: Bool {
+        let side = 64
+        guard let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return false }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+        guard let data = context.data else { return false }
+        let pixels = data.bindMemory(to: UInt8.self, capacity: side * side * 4)
+        return (0..<side * side * 4).contains { $0 % 4 != 3 && pixels[$0] > 8 }
+    }
+
     /// Fractions of the frame, as the app reports them, in its pixels.
     func highlights(_ fractions: [CGRect]) -> Highlights {
         let width = CGFloat(image.width), height = CGFloat(image.height)

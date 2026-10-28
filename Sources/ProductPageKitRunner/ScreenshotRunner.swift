@@ -201,7 +201,8 @@ public struct ScreenshotRunner: Sendable {
         func stamp(for platform: Platform) -> String {
             switch self {
             case .simulator(_, let name, let os):
-                "\(name) \(os)"
+                // A foldable is photographed opened flat, on its inner display.
+                "\(name) \(os)" + (Simulators.family(platform.kind).folds ? " opened flat" : "")
             case .mac:
                 "macOS \(ProcessInfo.processInfo.operatingSystemVersionString) \(platform.capture)"
             }
@@ -231,12 +232,17 @@ public struct ScreenshotRunner: Sendable {
                 let count = target.workers.count + (pending.tests.isEmpty ? 0 : 1)
                 for worker in 0..<count { clones.append(try await simulators.clone(base, worker: worker)) }
                 let drawsSensorBar = try await simulators.drawsSensorBar(base)
+                let unfolding: Unfolding? = if let display = try await simulators.innerDisplay(base) {
+                    Unfolding(display: display, hinge: try await Hinge.build(in: build.cache.derivedData.appending(path: "Hinge")))
+                } else {
+                    nil
+                }
                 let devices = clones.map { udid in
                     SimulatorWorker(simulators: simulators, udid: udid, os: os, bundleID: project.bundleID,
                                     appearance: project.appearance, contentSize: project.contentSize,
                                     statusBar: target.platform.kind.statusBar,
                                     systemLocale: project.simulatorLocale == .primary ? project.primaryLocale : nil,
-                                    time: clock, drawsSensorBar: drawsSensorBar)
+                                    time: clock, drawsSensorBar: drawsSensorBar, unfolding: unfolding)
                 }
                 let report = try await withThrowingTaskGroup(of: CaptureReport.self) { group in
                     for (device, locales) in zip(devices, target.workers) {
@@ -602,7 +608,7 @@ extension Platform.Kind {
     /// time alone, and an Apple TV has none.
     var statusBar: StatusBar {
         switch self {
-        case .iPhone: .time
+        case .iPhone, .iPhoneDuo: .time
         case .iPad: .dateAndTime
         case .appleTV, .mac: .none
         }
@@ -616,7 +622,7 @@ extension Platform {
 
     var controlPlatform: ControlPlatform {
         switch kind {
-        case .iPhone, .iPad: .iOS
+        case .iPhone, .iPad, .iPhoneDuo: .iOS
         case .appleTV: .tvOS
         case .mac: .macOS
         }

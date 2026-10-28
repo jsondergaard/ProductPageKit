@@ -28,6 +28,9 @@ public struct Platform: Sendable {
     public enum Kind: String, CaseIterable, Sendable {
         case iPhone = "ios"
         case iPad = "ipad"
+        /// The foldable iPhone, opened flat and captured on its inner
+        /// display, which is landscape.
+        case iPhoneDuo = "duo"
         case mac = "macos"
         case appleTV = "tvos"
 
@@ -35,6 +38,7 @@ public struct Platform: Sendable {
             switch self {
             case .iPhone: "iPhone 6.9\""
             case .iPad: "iPad 13\""
+            case .iPhoneDuo: "iPhone Duo"
             case .mac: "Mac"
             case .appleTV: "Apple TV"
             }
@@ -42,7 +46,7 @@ public struct Platform: Sendable {
 
         public var storePlatform: StorePlatform {
             switch self {
-            case .iPhone, .iPad: .iOS
+            case .iPhone, .iPad, .iPhoneDuo: .iOS
             case .mac: .macOS
             case .appleTV: .tvOS
             }
@@ -51,11 +55,13 @@ public struct Platform: Sendable {
         /// The screenshot set App Store Connect files the screenshots under.
         /// iPhone is 6.9": the API tops out at `APP_IPHONE_67`, which is the
         /// slot App Store Connect labels "6.9-inch Display" and which takes
-        /// 1320 × 2868.
+        /// 1320 × 2868. iPhone Duo's is missing from Apple's OpenAPI
+        /// document; the API takes `APP_IPHONE_DUO`, for both displays.
         public var displayType: String {
             switch self {
             case .iPhone: "APP_IPHONE_67"
             case .iPad: "APP_IPAD_PRO_3GEN_129"
+            case .iPhoneDuo: "APP_IPHONE_DUO"
             case .mac: "APP_DESKTOP"
             case .appleTV: "APP_APPLE_TV"
             }
@@ -70,12 +76,14 @@ public struct Platform: Sendable {
             let sizes: [CGSize] = switch self {
             case .iPhone: [CGSize(width: 1320, height: 2868), CGSize(width: 1290, height: 2796), CGSize(width: 1260, height: 2736)]
             case .iPad: [CGSize(width: 2064, height: 2752), CGSize(width: 2048, height: 2732)]
+            // The inner display, then the outer.
+            case .iPhoneDuo: [CGSize(width: 2853, height: 2007), CGSize(width: 2034, height: 1398)]
             case .mac: [CGSize(width: 2880, height: 1800), CGSize(width: 2560, height: 1600), CGSize(width: 1440, height: 900),
                         CGSize(width: 1280, height: 800)]
             case .appleTV: [CGSize(width: 3840, height: 2160), CGSize(width: 1920, height: 1080)]
             }
             return switch self {
-            case .iPhone, .iPad: sizes + sizes.map { CGSize(width: $0.height, height: $0.width) }
+            case .iPhone, .iPad, .iPhoneDuo: sizes + sizes.map { CGSize(width: $0.height, height: $0.width) }
             case .mac, .appleTV: sizes
             }
         }
@@ -84,6 +92,7 @@ public struct Platform: Sendable {
             switch self {
             case .iPhone: .iPhone
             case .iPad: .iPad
+            case .iPhoneDuo: .iPhoneDuo
             case .mac: .mac
             case .appleTV: .appleTV
             }
@@ -106,6 +115,10 @@ public struct Platform: Sendable {
 
     public static func iPad(device: SimulatorDevice = .largest, shots: [Shot] = []) -> Platform {
         Platform(kind: .iPad, shots: shots, capture: .simulator(device))
+    }
+
+    public static func iPhoneDuo(device: SimulatorDevice = .largest, shots: [Shot] = []) -> Platform {
+        Platform(kind: .iPhoneDuo, shots: shots, capture: .simulator(device))
     }
 
     public static func appleTV(device: SimulatorDevice = .largest, shots: [Shot] = []) -> Platform {

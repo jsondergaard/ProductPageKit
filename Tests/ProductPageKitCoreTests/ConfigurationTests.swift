@@ -29,6 +29,21 @@ import Testing
         #expect(example.storePlatforms == [.macOS, .iOS])
     }
 
+    /// iPhone Duo is a set of its own on the iOS page, framed on its inner
+    /// display opened flat, and taking either display's captures.
+    @Test func iPhoneDuoIsAnIOSSetOfItsOwn() {
+        var example = project()
+        example.platforms = [.iPhone(), .iPhoneDuo()]
+        #expect(example.storePlatforms == [.iOS])
+        #expect(example.problems().isEmpty)
+        let duo = Platform.Kind.iPhoneDuo
+        #expect(duo.displayType == "APP_IPHONE_DUO")
+        #expect(duo.screenshotSize == CGSize(width: 2853, height: 2007))
+        #expect(duo.acceptedSizes == [CGSize(width: 2853, height: 2007), CGSize(width: 2034, height: 1398),
+                                      CGSize(width: 2007, height: 2853), CGSize(width: 1398, height: 2034)])
+        #expect(duo.bezel == .iPhoneDuo)
+    }
+
     @Test func duplicateLocalesAndPlatformsAreProblems() {
         var example = project(locales: [StoreLocale("en", store: "en-US"), StoreLocale("en", store: "en-GB")])
         example.platforms = [.iPhone(), .iPhone()]

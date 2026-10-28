@@ -204,6 +204,26 @@ struct CaptureTests {
         #expect(try await run(force: true).shots.count == 1)
     }
 
+    /// An iPhone Duo simulator boots folded; the capture opens it flat and
+    /// photographs its inner display, which is landscape.
+    @Test func iPhoneDuoIsCapturedOpenedFlat() async throws {
+        var project = Self.project
+        project.platforms = [.iPhoneDuo(shots: ["list"])]
+        project.reviewScreenshots = []
+        project.renders = []
+        let console = RecordingConsole()
+        let session = Session(project: project, root: Self.packageRoot, environment: Environment(values: [:]),
+                              console: console, cache: Cache(bundleID: project.bundleID)) {
+            throw Stopped(description: "no App Store Connect in capture tests")
+        }
+        let report = try #require(try await Commands.captureScreenshots(session, platforms: "duo", locales: "en", shots: "",
+                                                                          workers: 1, force: true, dryRun: false))
+        let file = try #require(report.shots.first)
+        let frame = try Frame(png: try Data(contentsOf: file))
+        #expect(CGSize(width: frame.image.width, height: frame.image.height) == Platform.Kind.iPhoneDuo.screenshotSize)
+        #expect(frame.showsContent)
+    }
+
     /// Everything in ProductPageKitCapture is DEBUG only, so a Release build
     /// of an app that links it carries none of it.
     @Test func aReleaseBuildCarriesNoProductPageKitSymbols() async throws {

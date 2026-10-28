@@ -18,6 +18,12 @@ import Testing
                        provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
     }
 
+    /// A display that is off photographs black in the middle.
+    @Test func aBlackFrameShowsNothing() throws {
+        #expect(!(try Frame(image: image(marked: 100 * 100, mark: [0, 0, 0, 255]))).showsContent)
+        #expect(try Frame(image: image()).showsContent)
+    }
+
     @Test func framesMatchWithinTheTolerance() {
         let stability = FrameStability(tolerance: 0.001)
         #expect(stability.matches(image(), image()))
@@ -774,5 +780,71 @@ import Testing
             .write(to: log, atomically: true, encoding: .utf8)
         #expect(!ScreenshotRunner.droppedLaunch(in: log))
         #expect(!ScreenshotRunner.droppedLaunch(in: log.appending(path: "missing")))
+    }
+}
+
+@Suite struct DeviceTypeTests {
+    /// A device type bundle whose capabilities list these built-in display
+    /// widths, the first the main screen.
+    func type(_ name: String, family: String, displays: [Int], in folder: URL) throws -> Simulators.DeviceType {
+        let bundle = folder.appending(path: "\(name).simdevicetype")
+        let resources = bundle.appending(path: "Contents/Resources")
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        let capabilities: [String: Any] = [
+            "ScreenDimensionsCapability": ["main-screen-width": displays[0], "main-screen-height": 2000],
+            "displays": displays.enumerated().map { ["displayType": "integrated", "width": $1, "height": 2000, "screenID": $0 * 2 + 1] }
+                + [["displayType": "tvOut", "width": 720, "height": 480, "screenID": 2]],
+        ]
+        let data = try PropertyListSerialization.data(fromPropertyList: ["capabilities": capabilities], format: .xml, options: 0)
+        try data.write(to: resources.appending(path: "capabilities.plist"))
+        return Simulators.DeviceType(identifier: name, name: name, productFamily: family, bundlePath: bundle.path)
+    }
+
+    /// A foldable's outer display has fewer pixels than a Pro Max's, and it
+    /// is iPhone Duo's alone either way.
+    @Test func aFoldableIPhoneIsIPhoneDuosAlone() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let proMax = try type("Pro Max", family: "iPhone", displays: [1320], in: folder)
+        let duo = try type("Duo", family: "iPhone", displays: [1398, 2007], in: folder)
+        let iPad = try type("iPad", family: "iPad", displays: [2064], in: folder)
+        let all = [proMax, duo, iPad]
+        #expect(Simulators.types(all, for: .iPhone).map(\.name) == ["Pro Max"])
+        #expect(Simulators.types(all, for: .iPhoneDuo).map(\.name) == ["Duo"])
+        #expect(Simulators.types(all, for: .iPad).map(\.name) == ["iPad"])
+        #expect(Simulators.pixels(duo) == 1398 * 2000)
+    }
+
+    /// The inner display is the larger built-in one; a phone has none.
+    @Test func aFoldablesInnerDisplayIsItsLargerBuiltInOne() {
+        func capabilities(_ widths: [Int]) -> [String: Any] {
+            ["displays": widths.enumerated().map { ["displayType": "integrated", "width": $1, "height": 2000, "screenID": $0 * 2 + 1] }
+                + [["displayType": "scene", "width": 7680, "height": 4320, "screenID": 9]]]
+        }
+        #expect(Simulators.innerDisplay(capabilities([1398, 2007])) == 3)
+        #expect(Simulators.innerDisplay(capabilities([2007, 1398])) == 1)
+        #expect(Simulators.innerDisplay(capabilities([1320])) == nil)
+    }
+
+    /// iOS 27.1 shipped for iPhone Duo alone: the other iPhones stay on the
+    /// newest runtime that has them.
+    @Test func eachPlatformTakesTheNewestRuntimeThatHasItsDevice() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let proMax = try type("Pro Max", family: "iPhone", displays: [1320], in: folder)
+        let pro = try type("Pro", family: "iPhone", displays: [1206], in: folder)
+        let duo = try type("Duo", family: "iPhone", displays: [1398, 2007], in: folder)
+        func runtime(_ version: String, _ types: [Simulators.DeviceType]) -> Simulators.Runtime {
+            Simulators.Runtime(identifier: version, name: "iOS \(version)", version: version, platform: "iOS",
+                               isAvailable: true, supportedDeviceTypes: types)
+        }
+        let runtimes = [runtime("27.0", [pro, proMax]), runtime("27.1", [duo]), runtime("26.4", [pro, proMax])]
+        let iPhone = try Simulators.pick(.largest, for: .iPhone, in: runtimes)
+        #expect(iPhone.type.name == "Pro Max" && iPhone.runtime.version == "27.0")
+        let named = try Simulators.pick(.named("Pro"), for: .iPhone, in: runtimes)
+        #expect(named.type.name == "Pro" && named.runtime.version == "27.0")
+        let iPhoneDuo = try Simulators.pick(.largest, for: .iPhoneDuo, in: runtimes)
+        #expect(iPhoneDuo.type.name == "Duo" && iPhoneDuo.runtime.version == "27.1")
+        #expect(throws: RunnerError.self) { try Simulators.pick(.largest, for: .iPhoneDuo, in: Array(runtimes.prefix(1))) }
     }
 }

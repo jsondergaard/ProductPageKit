@@ -134,7 +134,7 @@ import ProductPageKitTestSupport
     /// A light ground's build: a warm, short shadow, no island, and lengths
     /// that follow a wider measure than the screen.
     static let ink = DeviceBezel.Style(
-        corners: .init(iPhone: 0.085, iPad: 0.035, mac: 0.012, appleTV: 0.004), bezels: .init(0.01),
+        corners: .init(iPhone: 0.085, iPad: 0.035, iPhoneDuo: 0.03, mac: 0.012, appleTV: 0.004), bezels: .init(0.01),
         shadowOffset: 0.014, shadowBlur: 0.045, shadowColor: .hex(0x3A2418, alpha: 0.34),
         edge: .init(color: .hex(0xFFFFFF, alpha: 0.16), width: 0.0016), seam: .init(color: .hex(0x000000, alpha: 0.22), width: 0.0012),
         island: false)
@@ -157,6 +157,11 @@ import ProductPageKitTestSupport
 
     @Test func iPad() throws {
         try Golden.check(drawn(.iPad, capture: Self.capture(width: 516, height: 688), width: 400), named: "bezel-ipad")
+    }
+
+    /// No Dynamic Island on the inner display, and corners nearer an iPad's.
+    @Test func iPhoneDuo() throws {
+        try Golden.check(drawn(.iPhoneDuo, capture: Self.capture(width: 634, height: 446), width: 500), named: "bezel-iphone-duo")
     }
 
     @Test func mac() throws {

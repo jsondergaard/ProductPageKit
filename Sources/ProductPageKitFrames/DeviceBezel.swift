@@ -14,6 +14,8 @@ public struct DeviceBezel: DeviceLook {
         /// status bar sits either side of a gap.
         case iPhone
         case iPad
+        /// The foldable iPhone's inner display, which has no Dynamic Island.
+        case iPhoneDuo
         /// A window, so its corners are small and its edge thin.
         case mac
         case appleTV
@@ -26,25 +28,28 @@ public struct DeviceBezel: DeviceLook {
         public struct PerModel: Sendable {
             public var iPhone: CGFloat
             public var iPad: CGFloat
+            public var iPhoneDuo: CGFloat
             public var mac: CGFloat
             public var appleTV: CGFloat
 
-            public init(iPhone: CGFloat, iPad: CGFloat, mac: CGFloat, appleTV: CGFloat) {
+            public init(iPhone: CGFloat, iPad: CGFloat, iPhoneDuo: CGFloat, mac: CGFloat, appleTV: CGFloat) {
                 self.iPhone = iPhone
                 self.iPad = iPad
+                self.iPhoneDuo = iPhoneDuo
                 self.mac = mac
                 self.appleTV = appleTV
             }
 
             /// The same value for every model.
             public init(_ value: CGFloat) {
-                self.init(iPhone: value, iPad: value, mac: value, appleTV: value)
+                self.init(iPhone: value, iPad: value, iPhoneDuo: value, mac: value, appleTV: value)
             }
 
             public subscript(model: Model) -> CGFloat {
                 switch model {
                 case .iPhone: iPhone
                 case .iPad: iPad
+                case .iPhoneDuo: iPhoneDuo
                 case .mac: mac
                 case .appleTV: appleTV
                 }
@@ -90,8 +95,8 @@ public struct DeviceBezel: DeviceLook {
 
         /// A deep shadow and a bright edge, for a dark ground.
         public static let standard = Style(
-            corners: PerModel(iPhone: 0.085, iPad: 0.03, mac: 0.012, appleTV: 0.004),
-            bezels: PerModel(iPhone: 0.0125, iPad: 0.025, mac: 0.0125, appleTV: 0.008),
+            corners: PerModel(iPhone: 0.085, iPad: 0.03, iPhoneDuo: 0.0275, mac: 0.012, appleTV: 0.004),
+            bezels: PerModel(iPhone: 0.0125, iPad: 0.025, iPhoneDuo: 0.0175, mac: 0.0125, appleTV: 0.008),
             shadowOffset: 0.0225, shadowBlur: 0.075, shadowColor: .hex(0x000000, alpha: 0.55),
             edge: Line(color: .hex(0xFFFFFF, alpha: 0.22), width: 0.002),
             seam: Line(color: .hex(0x000000, alpha: 0.35), width: 0.0015),
