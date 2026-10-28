@@ -394,18 +394,20 @@ it in Xcode to edit every locale side by side, or run `productpage review`.
 | `whatsNew.<version>` | What's New for that version | 4000 |
 | `reviewNotes` | App Review notes, not translated | 4000 |
 | `productReviewNote` | Every in-app product's App Review note, not translated | 4000 |
-| `screenshot.<shot>.kicker`, `.headline`, `.subline` | A screenshot's caption | none |
-| `video.<kind>.kicker`, `.headline`, `.subline` | A video's caption | none |
+| `screenshot.<shot>.kicker`, `.headline`, `.subline`, `.checklist` | A screenshot's caption | none |
+| `video.<kind>.kicker`, `.headline`, `.subline`, `.checklist` | A video's caption | none |
 | `page.<page>.promotionalText` | A custom product page's promotional text | 170 |
-| `page.<page>.screenshot.<shot>.kicker`, `.headline`, `.subline` | A custom page's screenshot caption | none |
-| `treatment.<treatment>.screenshot.<shot>.kicker`, `.headline`, `.subline` | An experiment treatment's screenshot caption | none |
+| `page.<page>.screenshot.<shot>.kicker`, `.headline`, `.subline`, `.checklist` | A custom page's screenshot caption | none |
+| `treatment.<treatment>.screenshot.<shot>.kicker`, `.headline`, `.subline`, `.checklist` | An experiment treatment's screenshot caption | none |
 
 The source language's values always upload. A translation uploads once its
 state is *translated*; a new one, or one that needs review, leaves App Store
 Connect's value as it is. Changing a source value marks its translations as
 needing review. A caption needs a headline in the source language; a caption
-line without a translation shows the source language's, with a warning. Each
-key's comment says how to write it, and Xcode and the review page show it.
+line without a translation shows the source language's, with a warning. A
+caption's checklist holds one item per line, which a theme reads as
+`caption.checklist`. Each key's comment says how to write it, and Xcode and
+the review page show it.
 
 `metadata check` runs offline, so it fits in CI. It checks every value
 against Apple's cap, required links, untranslatable fields, unknown keys,

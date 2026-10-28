@@ -24,6 +24,7 @@ struct RenderKey {
 
     mutating func add(_ caption: Caption) {
         for line in [caption.kicker ?? "", caption.headline, caption.subline ?? ""] { add(line) }
+        add(caption.checklist.joined(separator: "\n"))
     }
 
     func finalize() -> String {

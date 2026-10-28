@@ -179,16 +179,29 @@ public struct Caption: Hashable, Sendable {
         case headline
         /// A sentence under the headline.
         case subline
+        /// Short items a theme sets as a checklist, one per line.
+        case checklist
     }
 
     public var kicker: String?
     public var headline: String
     public var subline: String?
+    /// The checklist's items, in order; empty for none.
+    public var checklist: [String]
 
-    public init(kicker: String? = nil, headline: String, subline: String? = nil) {
+    public init(kicker: String? = nil, headline: String, subline: String? = nil, checklist: [String] = []) {
         self.kicker = kicker
         self.headline = headline
         self.subline = subline
+        self.checklist = checklist
+    }
+
+    /// A checklist line's items: one per line, blank lines and surrounding
+    /// spaces dropped.
+    static func items(_ checklist: String?) -> [String] {
+        (checklist ?? "").split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
 }
 

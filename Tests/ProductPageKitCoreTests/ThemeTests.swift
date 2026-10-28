@@ -48,11 +48,12 @@ struct PlainStage: MotionStage {
 
     @Test func eachShotHasACaptionOnceAThemeFramesIt() {
         let keys = copy().fields.map(\.key).filter { $0.hasPrefix("screenshot.") }
-        #expect(keys == ["screenshot.inbox.kicker", "screenshot.inbox.headline", "screenshot.inbox.subline",
-                         "screenshot.detail.kicker", "screenshot.detail.headline", "screenshot.detail.subline"])
+        #expect(keys == ["screenshot.inbox.kicker", "screenshot.inbox.headline", "screenshot.inbox.subline", "screenshot.inbox.checklist",
+                         "screenshot.detail.kicker", "screenshot.detail.headline", "screenshot.detail.subline",
+                         "screenshot.detail.checklist"])
         #expect(!copy(frames: false).fields.contains { $0.key.hasPrefix("screenshot.") })
         #expect(copy(frames: false, videos: true).fields.map(\.key).filter { $0.hasPrefix("video.") }
-                == ["video.header.kicker", "video.header.headline", "video.header.subline"])
+                == ["video.header.kicker", "video.header.headline", "video.header.subline", "video.header.checklist"])
     }
 
     @Test func onlyTheHeadlineIsRequired() {
@@ -90,6 +91,23 @@ struct PlainStage: MotionStage {
         #expect(danish.untranslated.map(\.key) == ["screenshot.library-pro.kicker"])
         copy.catalog.set("Alt du ejer, igen.", for: "screenshot.library-pro.headline", language: "da", state: .needsReview)
         #expect(copy.caption(subject, locale: da)?.caption.headline == "Everything you own.")
+    }
+
+    /// One item per line; blank lines and the spaces around an item are
+    /// dropped, and an untranslated checklist shows the source language's.
+    @Test func aChecklistIsOneItemPerLine() throws {
+        var copy = copy()
+        let subject = CaptionSubject.screenshot("inbox")
+        copy.set("Every alert.", field: .caption(subject, .headline), locale: en)
+        copy.set("Hver besked.", field: .caption(subject, .headline), locale: da)
+        #expect(try #require(copy.caption(subject, locale: en)).caption.checklist == [])
+        copy.set(" Push\n\nEmail \nSMS", field: .caption(subject, .checklist), locale: en)
+        #expect(try #require(copy.caption(subject, locale: en)).caption.checklist == ["Push", "Email", "SMS"])
+        let danish = try #require(copy.caption(subject, locale: da))
+        #expect(danish.caption.checklist == ["Push", "Email", "SMS"])
+        #expect(danish.untranslated.map(\.key) == ["screenshot.inbox.checklist"])
+        copy.set("Push\nE-mail\nSMS", field: .caption(subject, .checklist), locale: da)
+        #expect(try #require(copy.caption(subject, locale: da)).caption.checklist == ["Push", "E-mail", "SMS"])
     }
 
     @Test func captionKeysAreCopy() {

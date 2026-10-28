@@ -121,7 +121,8 @@ public struct StoreCopy: Sendable {
             return value
         }
         guard let headline = line(.headline) else { return nil }
-        return (Caption(kicker: line(.kicker), headline: headline, subline: line(.subline)), untranslated)
+        return (Caption(kicker: line(.kicker), headline: headline, subline: line(.subline),
+                        checklist: Caption.items(line(.checklist))), untranslated)
     }
 
     /// Versions with What's New in the catalog.

@@ -174,7 +174,8 @@ struct ReviewServer {
         #expect(page.fields == ["page.pager.promotionalText"])
         #expect(page.strips.map(\.id) == ["page-pager-ios"])
         #expect(page.strips[0].captions.map { $0[1] } == ["page.pager.screenshot.home.headline", "screenshot.list.headline"])
-        #expect(state.sections[6].fields == ["video.header.kicker", "video.header.headline", "video.header.subline"])
+        #expect(state.sections[6].fields == ["video.header.kicker", "video.header.headline", "video.header.subline",
+                                              "video.header.checklist"])
         #expect(state.sections[6].video == "header")
     }
 }
