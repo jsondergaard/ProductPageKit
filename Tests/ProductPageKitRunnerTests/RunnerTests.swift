@@ -154,18 +154,20 @@ import Testing
     @Test func theLocalesLeftAreSharedOutAsTheTargetSharedItsOwn() throws {
         let example = project(locales: ["en", "da", "de"])
         let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: [example.platforms[0]], locales: example.locales, workers: 2),
-                                   cores: 8)
+                                   machine: Machine(cores: 8, memory: 64 << 30))
         let target = plan.targets[0]
         let (en, da, de) = (example.locales[0], example.locales[1], example.locales[2])
         #expect(target.workers == [[en, de], [da]])
-        #expect(ScreenshotRunner.workers(for: [], of: target).isEmpty)
-        #expect(ScreenshotRunner.workers(for: [de], of: target) == [[de]])
-        #expect(ScreenshotRunner.workers(for: [en, da, de], of: target) == [[en, de], [da]])
+        #expect(ScreenshotRunner.workers(for: [], of: target, testing: false).isEmpty)
+        #expect(ScreenshotRunner.workers(for: [de], of: target, testing: false) == [[de]])
+        #expect(ScreenshotRunner.workers(for: [en, da, de], of: target, testing: false) == [[en, de], [da]])
+        // The screens tests put up take one of the two simulators.
+        #expect(ScreenshotRunner.workers(for: [en, da, de], of: target, testing: true) == [[en, da, de]])
         #expect(target.taking([[da]]).workers == [[da]])
         #expect(target.taking([[da]]).shots == target.shots)
         #expect(!plan.force)
         #expect(try CapturePlan(project: example, request: CaptureRequest(platforms: [example.platforms[0]], locales: example.locales, force: true),
-                                cores: 8).force)
+                                machine: Machine(cores: 8, memory: 64 << 30)).force)
     }
 }
 

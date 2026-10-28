@@ -1,3 +1,4 @@
+import Foundation
 public import ProductPageKitCore
 
 /// What a capture run asks for: a subset of the project, or all of it.
@@ -9,7 +10,9 @@ public struct CaptureRequest: Sendable {
     /// platform, and no components, renders or review screenshots: a scene
     /// outside a platform's list is captured under its name, to look at.
     public var shots: [Shot]?
-    /// Simulators per platform. Nil is one for every four cores.
+    /// Simulators per platform at once, the one that shows the screens tests
+    /// put up included. Nil is what the machine has room for
+    /// (`Machine.simulators`).
     public var workers: Int?
     /// Takes every capture again, where the default keeps the ones taken
     /// from the same app, device and settings.
@@ -21,6 +24,35 @@ public struct CaptureRequest: Sendable {
         self.shots = shots
         self.workers = workers
         self.force = force
+    }
+}
+
+/// What a run can ask of the Mac it runs on.
+public struct Machine: Sendable {
+    public var cores: Int
+    /// Physical memory, in bytes.
+    public var memory: UInt64
+
+    public init(cores: Int, memory: UInt64) {
+        self.cores = cores
+        self.memory = memory
+    }
+
+    public static var current: Machine {
+        Machine(cores: ProcessInfo.processInfo.activeProcessorCount, memory: ProcessInfo.processInfo.physicalMemory)
+    }
+
+    /// What one booted simulator takes: a freshly cloned iOS 27 device runs
+    /// close to 300 processes, its widgets and daemons settling in.
+    static let simulatorMemory: UInt64 = 6 << 30
+    /// What the Mac keeps for itself and a build beside the simulators.
+    static let reservedMemory: UInt64 = 8 << 30
+
+    /// Simulators to run at once: one for every four cores and every
+    /// `simulatorMemory` past `reservedMemory`, and always one.
+    public var simulators: Int {
+        let room = memory > Self.reservedMemory ? Int((memory - Self.reservedMemory) / Self.simulatorMemory) : 0
+        return max(1, min(cores / 4, room))
     }
 }
 
@@ -80,7 +112,7 @@ public struct CapturePlan: Sendable {
     public let targets: [Target]
     public let force: Bool
 
-    public init(project: Project, request: CaptureRequest, cores: Int) throws {
+    public init(project: Project, request: CaptureRequest, machine: Machine) throws {
         force = request.force
         targets = request.platforms.compactMap { platform in
             let shots = request.shots ?? project.captures(on: platform.kind)
@@ -93,7 +125,7 @@ public struct CapturePlan: Sendable {
             guard !shots.isEmpty || !components.isEmpty || primary != nil else { return nil }
             let workers: Int = switch platform.capture {
             case .window: 1
-            case .simulator: max(1, min(request.workers ?? cores / 4, request.locales.count))
+            case .simulator: max(1, min(request.workers ?? machine.simulators, request.locales.count))
             }
             return Target(platform: platform, shots: shots, components: components, primary: primary,
                           workers: Self.split(request.locales, into: workers), reviewScreenshots: reviews)

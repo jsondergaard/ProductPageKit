@@ -31,13 +31,14 @@ public struct CaptureReport: Sendable {
 /// 2. Run the project's `before` commands, then build each platform in turn
 ///    into one DerivedData. A platform starts capturing as soon as its build
 ///    is done, while the next one builds.
-/// 3. Simulators: clone the runner's base device once per worker, and once
-///    more for the screens tests put up, boot the clones, set the status bar,
-///    appearance and text size, and install. Each worker takes a share of the
-///    locales.
+/// 3. Simulators: clone the runner's base device once per worker, boot the
+///    clones, set the status bar, appearance and text size, and install.
+///    The screens tests put up take one of the platform's workers, and
+///    each other worker takes a share of the locales.
 /// 4. Run the tests that put up screens, App Review screenshots among them,
-///    on their own clone in the primary locale, beside the workers. They
-///    report ready the same way scenes do.
+///    on their own clone in the primary locale: beside the other workers,
+///    or after them when the platform has one. They report ready the same
+///    way scenes do.
 /// 5. Each locale restarts a simulator in it, when the simulators follow the
 ///    captured locale and it is not in it already, then is
 ///    one launch for the scenes drawn in process, or one per variant for an
@@ -122,15 +123,16 @@ public struct ScreenshotRunner: Sendable {
                     group.addTask { kept }
                     continue
                 }
-                let remaining = target.taking(Self.workers(for: pending.locales, of: target))
+                let remaining = target.taking(Self.workers(for: pending.locales, of: target, testing: !pending.tests.isEmpty))
+                let testsAlongside = remaining.workers.count < target.workers.count
                 group.addTask {
                     guard case .simulator = host else {
                         return try await capture(remaining, pending: pending, app: app, host: host, build: build,
-                                                 simulators: simulators, clock: clock, inputs: inputs)
+                                                 simulators: simulators, clock: clock, inputs: inputs, testsAlongside: testsAlongside)
                     }
                     return try await simulatorTurns.taking {
                         try await capture(remaining, pending: pending, app: app, host: host, build: build,
-                                          simulators: simulators, clock: clock, inputs: inputs)
+                                          simulators: simulators, clock: clock, inputs: inputs, testsAlongside: testsAlongside)
                     }
                 }
             }
@@ -217,34 +219,43 @@ public struct ScreenshotRunner: Sendable {
         }
     }
 
-    /// - Parameter clock: what the simulators' status bars show.
+    /// - Parameters:
+    ///   - clock: what the simulators' status bars show.
+    ///   - testsAlongside: whether the screens tests put up are captured
+    ///     beside the locales, on a simulator of their own, or after them.
     private func capture(_ target: CapturePlan.Target, pending: Pending, app: URL, host: Host, build: XcodeBuild,
-                         simulators: Simulators, clock: String, inputs: CaptureInputs) async throws -> CaptureReport {
+                         simulators: Simulators, clock: String, inputs: CaptureInputs,
+                         testsAlongside: Bool) async throws -> CaptureReport {
         let kept = CaptureReport(unchanged: pending.unchanged)
         switch host {
         case .simulator(let base, let name, let os):
-            log("\(target.platform.name): \(counted(target.workers.count, "worker")) on \(name)")
-            var clones: [String] = []
-            do {
-                // Screens a test puts up get a simulator of their own: a test
-                // that drives other apps leaves them, and the way back to
-                // them in the status bar, behind for whatever launches next.
-                let count = target.workers.count + (pending.tests.isEmpty ? 0 : 1)
-                for worker in 0..<count { clones.append(try await simulators.clone(base, worker: worker)) }
-                let drawsSensorBar = try await simulators.drawsSensorBar(base)
-                let unfolding: Unfolding? = if let display = try await simulators.innerDisplay(base) {
-                    Unfolding(display: display, hinge: try await Hinge.build(in: build.cache.derivedData.appending(path: "Hinge")))
-                } else {
-                    nil
-                }
-                let devices = clones.map { udid in
-                    SimulatorWorker(simulators: simulators, udid: udid, os: os, bundleID: project.bundleID,
-                                    appearance: project.appearance, contentSize: project.contentSize,
-                                    statusBar: target.platform.kind.statusBar,
-                                    systemLocale: project.simulatorLocale == .primary ? project.primaryLocale : nil,
-                                    time: clock, drawsSensorBar: drawsSensorBar, unfolding: unfolding)
-                }
-                let report = try await withThrowingTaskGroup(of: CaptureReport.self) { group in
+            // Screens a test puts up get a simulator of their own: a test
+            // that drives other apps leaves them, and the way back to them in
+            // the status bar, behind for whatever launches next.
+            let testing = !pending.tests.isEmpty
+            let alongside = testing && testsAlongside
+            let simulatorCount = target.workers.count + (alongside ? 1 : 0)
+            log("\(target.platform.name): \(counted(simulatorCount, "worker")) on \(name)"
+                + (testing && !alongside ? ", the tests' screens after the locales" : ""))
+            let drawsSensorBar = try await simulators.drawsSensorBar(base)
+            let unfolding: Unfolding? = if let display = try await simulators.innerDisplay(base) {
+                Unfolding(display: display, hinge: try await Hinge.build(in: build.cache.derivedData.appending(path: "Hinge")))
+            } else {
+                nil
+            }
+            let workers = SimulatorWorkers(simulators: simulators, base: base) { udid in
+                SimulatorWorker(simulators: simulators, udid: udid, os: os, bundleID: project.bundleID,
+                                appearance: project.appearance, contentSize: project.contentSize,
+                                statusBar: target.platform.kind.statusBar,
+                                systemLocale: project.simulatorLocale == .primary ? project.primaryLocale : nil,
+                                time: clock, drawsSensorBar: drawsSensorBar, unfolding: unfolding)
+            }
+            let testScreens: @Sendable (SimulatorWorker) async throws -> CaptureReport = { device in
+                try await device.prepare(app: app, locale: project.primaryLocale)
+                return try await tests(pending.tests, of: target, device: device, build: build, inputs: inputs)
+            }
+            var report = try await workers.using(simulatorCount) { devices in
+                try await withThrowingTaskGroup(of: CaptureReport.self) { group in
                     for (device, locales) in zip(devices, target.workers) {
                         group.addTask {
                             try await device.prepare(app: app, locale: locales[0])
@@ -252,21 +263,17 @@ public struct ScreenshotRunner: Sendable {
                         }
                     }
                     if let device = devices.dropFirst(target.workers.count).first {
-                        group.addTask {
-                            try await device.prepare(app: app, locale: project.primaryLocale)
-                            return try await tests(pending.tests, of: target, device: device, build: build, inputs: inputs)
-                        }
+                        group.addTask { try await testScreens(device) }
                     }
                     var report = kept
                     for try await part in group { report.merge(part) }
                     return report
                 }
-                await Self.delete(clones, simulators)
-                return report
-            } catch {
-                await Self.delete(clones, simulators)
-                throw error
             }
+            if testing && !alongside {
+                report.merge(try await workers.using(1) { try await testScreens($0[0]) })
+            }
+            return report
         case .mac:
             let window = if case .window(let size) = target.platform.capture { size } else { CGSize?.none }
             log("\(target.platform.name): \(window.map { "\(Int($0.width)) × \(Int($0.height)) window" } ?? "window at its own size")")
@@ -415,8 +422,13 @@ public struct ScreenshotRunner: Sendable {
     }
 
     /// `locales` shared out as `target` shared its own.
-    static func workers(for locales: [StoreLocale], of target: CapturePlan.Target) -> [[StoreLocale]] {
-        locales.isEmpty ? [] : CapturePlan.split(locales, into: min(target.workers.count, locales.count))
+    /// The locales left, shared out across the target's workers, but one
+    /// when `testing` and the target has more than one: that one shows the
+    /// screens tests put up.
+    static func workers(for locales: [StoreLocale], of target: CapturePlan.Target, testing: Bool) -> [[StoreLocale]] {
+        let simulators = target.workers.count
+        let forLocales = testing && simulators > 1 ? simulators - 1 : simulators
+        return locales.isEmpty ? [] : CapturePlan.split(locales, into: min(forLocales, locales.count))
     }
 
     /// Exports `component` and writes it, trimmed to what it draws.
@@ -574,13 +586,6 @@ public struct ScreenshotRunner: Sendable {
         }
     }
 
-    /// Outside the run's task, so a cancelled run still cleans up.
-    private static func delete(_ clones: [String], _ simulators: Simulators) async {
-        await Task.detached {
-            for clone in clones { try? await simulators.delete(clone) }
-        }.value
-    }
-
     /// `9:41`, or the minute `start` falls in as `simctl` takes a date: in
     /// UTC, for the simulator to show in its own region. A date also sets
     /// the date beside the time on an iPad.
@@ -647,3 +652,32 @@ actor Turns {
     }
 }
 
+
+/// Clones of a platform's base device, booted as workers for one stretch of
+/// a run and deleted after it.
+struct SimulatorWorkers: Sendable {
+    let simulators: Simulators
+    let base: String
+    let worker: @Sendable (String) -> SimulatorWorker
+
+    /// Runs `body` on `count` fresh clones, and deletes them however it ends.
+    func using<Result: Sendable>(_ count: Int, _ body: @Sendable ([SimulatorWorker]) async throws -> Result) async throws -> Result {
+        var clones: [String] = []
+        do {
+            for index in 0..<count { clones.append(try await simulators.clone(base, worker: index)) }
+            let result = try await body(clones.map(worker))
+            await delete(clones)
+            return result
+        } catch {
+            await delete(clones)
+            throw error
+        }
+    }
+
+    /// Outside the run's task, so a cancelled run still cleans up.
+    private func delete(_ clones: [String]) async {
+        await Task.detached { [simulators] in
+            for clone in clones { try? await simulators.delete(clone) }
+        }.value
+    }
+}

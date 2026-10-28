@@ -36,16 +36,27 @@ struct DevicesFrames: FrameTheme {
     @Test func simulatorsGetOneWorkerForEveryFourCoresAndNoMoreThanLocales() throws {
         let example = project()
         let request = CaptureRequest(platforms: example.platforms, locales: example.locales)
-        let plan = try CapturePlan(project: example, request: request, cores: 12)
+        let plan = try CapturePlan(project: example, request: request, machine: Machine(cores: 12, memory: 64 << 30))
         #expect(plan.targets[0].workers.map { $0.map(\.code) } == [["en", "fr"], ["da", "es"], ["de"]])
         #expect(plan.targets[1].workers.map { $0.map(\.code) } == [["en", "da", "de", "fr", "es"]])
 
-        let few = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: Array(example.locales.prefix(2))), cores: 32)
+        let few = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: Array(example.locales.prefix(2))), machine: Machine(cores: 32, memory: 64 << 30))
         #expect(few.targets[0].workers.count == 2)
-        let forced = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales, workers: 1), cores: 32)
+        let forced = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales, workers: 1), machine: Machine(cores: 32, memory: 64 << 30))
         #expect(forced.targets[0].workers.count == 1)
-        let small = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), cores: 2)
+        let small = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), machine: Machine(cores: 2, memory: 64 << 30))
         #expect(small.targets[0].workers.count == 1)
+    }
+
+    @Test func simulatorsGetSixGigabytesEachPastTheMacsOwnEight() throws {
+        #expect(Machine(cores: 15, memory: 24 << 30).simulators == 2)
+        #expect(Machine(cores: 16, memory: 128 << 30).simulators == 4)
+        #expect(Machine(cores: 8, memory: 8 << 30).simulators == 1)
+        #expect(Machine(cores: 8, memory: 4 << 30).simulators == 1)
+        let example = project()
+        let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales),
+                                   machine: Machine(cores: 32, memory: 24 << 30))
+        #expect(plan.targets[0].workers.count == 2)
     }
 
     @Test func localesAreDealtRoundRobin() {
@@ -56,7 +67,7 @@ struct DevicesFrames: FrameTheme {
 
     @Test func filesAreNumberedInStoreOrder() throws {
         let example = project()
-        let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), cores: 4)
+        let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), machine: Machine(cores: 4, memory: 64 << 30))
         #expect(plan.targets[0].fileNames(in: example.locales[0]) == ["01_inbox.png", "02_library-pro.png", "03_quiet.png"])
         #expect(plan.targets.allSatisfy { $0.reviewScreenshots.count == 1 })
     }
@@ -64,7 +75,7 @@ struct DevicesFrames: FrameTheme {
     @Test func aSubsetKeepsNumbersForListedShotsAndNamesTheRest() throws {
         let example = project()
         let request = CaptureRequest(platforms: example.platforms, locales: example.locales, shots: ["quiet", "panel"])
-        let plan = try CapturePlan(project: example, request: request, cores: 4)
+        let plan = try CapturePlan(project: example, request: request, machine: Machine(cores: 4, memory: 64 << 30))
         #expect(plan.targets[0].fileNames(in: example.locales[0]) == ["03_quiet.png", "panel.png"])
         #expect(plan.targets[1].fileNames(in: example.locales[0]) == ["quiet.png", "panel.png"])
         #expect(plan.targets.allSatisfy { $0.reviewScreenshots.isEmpty })
@@ -73,11 +84,11 @@ struct DevicesFrames: FrameTheme {
     @Test func aPlatformWithoutShotsIsSkippedAndNoShotsAtAllIsAnError() throws {
         var example = project()
         example.platforms[1].shots = []
-        let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), cores: 4)
+        let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), machine: Machine(cores: 4, memory: 64 << 30))
         #expect(plan.targets.map(\.platform.id) == ["ios"])
         example.platforms[0].shots = []
         #expect(throws: RunnerError.self) {
-            try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), cores: 4)
+            try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), machine: Machine(cores: 4, memory: 64 << 30))
         }
     }
 
@@ -117,12 +128,12 @@ struct DevicesFrames: FrameTheme {
     @Test func whatIsCapturedComesFromTheFrames() throws {
         var example = project(locales: ["en"])
         example.frames = DevicesFrames()
-        let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), cores: 8)
+        let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), machine: Machine(cores: 8, memory: 64 << 30))
         #expect(plan.targets[0].shots == ["inbox", "home", Shot("library", variant: "pro"), "quiet"])
         #expect(plan.targets[0].components == ["badge"])
         #expect(plan.targets[1].shots == ["home", "setup"])
         let subset = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales,
-                                                                               shots: ["inbox"]), cores: 8)
+                                                                               shots: ["inbox"]), machine: Machine(cores: 8, memory: 64 << 30))
         #expect(subset.targets.allSatisfy { $0.components.isEmpty })
     }
 
@@ -132,7 +143,7 @@ struct DevicesFrames: FrameTheme {
         var example = project()
         example.renders = [Render("inbox-site", .capture("inbox", on: .iPhone)), Render("player", .capture("player", on: .iPhone)),
                            Render("badge", .component(Component("badge", state: "on"), on: .iPhone))]
-        let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), cores: 4)
+        let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), machine: Machine(cores: 4, memory: 64 << 30))
         let iPhone = plan.targets[0]
         let english = example.locales[0], danish = example.locales[1]
         #expect(iPhone.shots(in: english) == ["inbox", Shot("library", variant: "pro"), "quiet", "player"])
@@ -143,10 +154,10 @@ struct DevicesFrames: FrameTheme {
         #expect(plan.lines.contains("  components in en alone: badge@on"))
 
         let withoutEnglish = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms,
-                                                                                         locales: [danish]), cores: 4)
+                                                                                         locales: [danish]), machine: Machine(cores: 4, memory: 64 << 30))
         #expect(withoutEnglish.targets[0].primary == nil)
         let listed = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales,
-                                                                                 shots: ["quiet"]), cores: 4)
+                                                                                 shots: ["quiet"]), machine: Machine(cores: 4, memory: 64 << 30))
         #expect(listed.targets[0].shots(in: english) == ["quiet"])
     }
 
@@ -157,7 +168,7 @@ struct DevicesFrames: FrameTheme {
         let menu = "ExampleUITests/Renders/testMenus"
         example.renders = [Render("menu-audio", .test(menu, scene: Shot("menu", variant: "audio"), on: .iPhone)),
                            Render("menu-off", .test(menu, scene: Shot("menu", variant: "off"), on: .iPhone))]
-        let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), cores: 4)
+        let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), machine: Machine(cores: 4, memory: 64 << 30))
         #expect(plan.targets[0].tests == [example.reviewScreenshots[0].capture,
                                           TestCapture(test: menu, scene: Shot("menu", variant: "audio")),
                                           TestCapture(test: menu, scene: Shot("menu", variant: "off"))])
@@ -165,13 +176,13 @@ struct DevicesFrames: FrameTheme {
         #expect(plan.lines.contains("  menu (off) in en, from \(menu)"))
 
         let danish = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms,
-                                                                                 locales: [example.locales[1]]), cores: 4)
+                                                                                 locales: [example.locales[1]]), machine: Machine(cores: 4, memory: 64 << 30))
         #expect(danish.targets[0].tests == [example.reviewScreenshots[0].capture])
     }
 
     @Test func aDryRunDescribesEveryLaunch() throws {
         let example = project(locales: ["en"])
-        let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), cores: 8)
+        let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), machine: Machine(cores: 8, memory: 64 << 30))
         #expect(plan.lines == [
             "iPhone 6.9\": the largest iPhone simulator, 1 worker",
             "  en: 01_inbox.png 02_library-pro.png 03_quiet.png",
@@ -185,7 +196,7 @@ struct DevicesFrames: FrameTheme {
     @Test func aDryRunNamesTheFoldableIPhoneDuoIsCapturedOn() throws {
         var example = project(locales: ["en"])
         example.platforms = [.iPhoneDuo(shots: ["inbox"])]
-        let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), cores: 8)
+        let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), machine: Machine(cores: 8, memory: 64 << 30))
         #expect(plan.lines.first == "iPhone Duo: the largest foldable iPhone simulator, 1 worker")
     }
 }

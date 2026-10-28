@@ -238,7 +238,9 @@ as playing video, is marked `.captureMoving()` and left out of the
 comparison.
 
 - iPhone, iPad, iPhone Duo and Apple TV run on cloned simulators, one for
-  every four cores and at most one per locale, with 9:41 in the status bar.
+  every four cores and every 6 GB of memory past 8, at most one per locale,
+  with 9:41 in the status bar. Screens a test puts up take one of them, or a
+  clone of their own after the locales when a platform has one worker.
   Each runs on the newest runtime that has its device, and iPhone 6.9"
   never on a foldable. iPhone Duo's simulators boot folded, so each is
   opened flat after it boots, by the hinge event Device Hub's slider sends,
