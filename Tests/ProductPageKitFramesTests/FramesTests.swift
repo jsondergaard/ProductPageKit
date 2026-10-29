@@ -159,7 +159,7 @@ import ProductPageKitTestSupport
         try Golden.check(drawn(.iPad, capture: Self.capture(width: 516, height: 688), width: 400), named: "bezel-ipad")
     }
 
-    /// No Dynamic Island on the inner display, and corners nearer an iPad's.
+    /// No Dynamic Island on the inner display, and corners as wide as its own.
     @Test func iPhoneDuo() throws {
         try Golden.check(drawn(.iPhoneDuo, capture: Self.capture(width: 634, height: 446), width: 500), named: "bezel-iphone-duo")
     }

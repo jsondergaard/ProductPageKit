@@ -94,8 +94,13 @@ public struct DeviceBezel: DeviceLook {
         }
 
         /// A deep shadow and a bright edge, for a dark ground.
+        ///
+        /// iPhone Duo's corner is as wide as the inner display's own, which
+        /// its simulator mask puts at 6.5% of the landscape width. Any
+        /// tighter and the capture's black corners show inside the screen,
+        /// beside a sidebar iOS rounds to the display.
         public static let standard = Style(
-            corners: PerModel(iPhone: 0.085, iPad: 0.03, iPhoneDuo: 0.0275, mac: 0.012, appleTV: 0.004),
+            corners: PerModel(iPhone: 0.085, iPad: 0.03, iPhoneDuo: 0.065, mac: 0.012, appleTV: 0.004),
             bezels: PerModel(iPhone: 0.0125, iPad: 0.025, iPhoneDuo: 0.0175, mac: 0.0125, appleTV: 0.008),
             shadowOffset: 0.0225, shadowBlur: 0.075, shadowColor: .hex(0x000000, alpha: 0.55),
             edge: Line(color: .hex(0xFFFFFF, alpha: 0.22), width: 0.002),
