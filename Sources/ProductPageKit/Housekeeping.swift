@@ -5,10 +5,13 @@ import ProductPageKitCore
 extension Commands {
     /// Frames the screenshots and renders the videos, then copies them to
     /// `<directory>/<platform>/<locale>/` and `<directory>/videos/<locale>/`.
-    static func export(_ session: Session, to directory: String) async throws {
+    /// A relative `directory` is inside `base`.
+    static func export(_ session: Session, to directory: String,
+                       from base: String = FileManager.default.currentDirectoryPath) async throws {
         try session.checkProject()
         let project = session.project
-        let destination = URL(filePath: directory, relativeTo: URL(filePath: FileManager.default.currentDirectoryPath)).standardizedFileURL
+        let destination = URL(filePath: directory, directoryHint: .isDirectory,
+                              relativeTo: URL(filePath: base, directoryHint: .isDirectory)).standardizedFileURL
         var files: [(URL, String)] = try await frameScreenshots(session, platforms: project.platforms, locales: project.locales)
             .screenshots.map { ($0.url, $0.exportPath) }
         if project.videos != nil {
