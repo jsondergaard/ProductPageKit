@@ -342,6 +342,24 @@ import ProductPageKitTestSupport
         #expect(again.console.output.contains("1 video already rendered."))
     }
 
+    /// Each stale video is drawn and encoded in turn, after all are checked.
+    @Test func rendersEveryStaleVideoInTurn() async throws {
+        let fixture = try Fixture(themes: .videos)
+        try fixture.writeCaptures()
+        let da = try #require(fixture.project.locales.first { $0.code == "da" })
+        let report = try await Commands.renderVideos(fixture.session, locales: [fixture.en, da])
+        #expect(report.drawn == 2)
+        #expect(Set(report.videos.map(\.url)).count == 2)
+        for video in report.videos {
+            let track = try #require(try await AVURLAsset(url: video.url).loadTracks(withMediaType: .video).first)
+            #expect(try await track.load(.naturalSize) == CGSize(width: 3840, height: 1646))
+        }
+        let output = fixture.console.output
+        let en = try #require(output.range(of: "Rendering the product page header video in en…"))
+        let danish = try #require(output.range(of: "Rendering the product page header video in da…"))
+        #expect(en.lowerBound < danish.lowerBound)
+    }
+
     @Test func uploadsWaitsAndPlacesThenFindsNothingToChange() async throws {
         let fixture = try Fixture(themes: .videos)
         try fixture.writeCaptures()
@@ -433,6 +451,16 @@ import ProductPageKitTestSupport
                           "renders/ios/basket.png", "renders/ios/settings.png", "renders/ios/share.png", "renders/macos/home-site.png",
                           "videos/da/header.mp4", "videos/en/header.mp4"])
         #expect(fixture.console.output.contains("Exported 12 files to"))
+    }
+
+    /// A relative directory is inside the one the command runs in, not beside it.
+    @Test func exportResolvesARelativeDirectoryInsideTheBase() async throws {
+        let fixture = try Fixture(themes: [.frames, .videos])
+        try fixture.writeCaptures()
+        let base = fixture.root.appending(path: "app")
+        try await Commands.export(fixture.session, to: "build/export", from: base.path)
+        #expect(FileManager.default.fileExists(atPath: base.appending(path: "build/export/videos/en/header.mp4").path))
+        #expect(!FileManager.default.fileExists(atPath: fixture.root.appending(path: "build").path))
     }
 
     /// A render nothing has captured yet stops the export and says which.

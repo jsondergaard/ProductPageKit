@@ -40,8 +40,12 @@ public enum VideoEncoder {
         for index in 0..<frames {
             try Task.checkCancellation()
             let buffer = try pool.makeMutablePixelBuffer()
-            let image = try frame(index).cropped(to: bounds)
-            buffer.withUnsafeBuffer { context.render(image, to: $0, bounds: bounds, colorSpace: Canvas.colorSpace) }
+            // Core Image autoreleases each frame's intermediate bitmaps, and a
+            // task's loop never drains them on its own.
+            try autoreleasepool {
+                let image = try frame(index).cropped(to: bounds)
+                buffer.withUnsafeBuffer { context.render(image, to: $0, bounds: bounds, colorSpace: Canvas.colorSpace) }
+            }
             try await receiver.append(CVReadOnlyPixelBuffer(buffer), with: CMTime(value: Int64(index), timescale: CMTimeScale(fps)))
         }
         receiver.finish()

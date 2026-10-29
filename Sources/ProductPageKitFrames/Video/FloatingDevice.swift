@@ -89,8 +89,14 @@ public struct FloatingDevice: Sendable {
         self.schedule = schedule
         self.drift = drift
         self.phase = phase
-        reach = look.outline.insetBy(dx: -abs(drift.dx), dy: -abs(drift.dy))
+        reach = Self.reach(of: look, drift: drift)
         screenRect = look.screen
+    }
+
+    /// Everything a body in `look` can reach floating `drift` each way,
+    /// known before anything is drawn.
+    public static func reach(of look: any DeviceLook, drift: CGVector) -> CGRect {
+        look.outline.insetBy(dx: -abs(drift.dx), dy: -abs(drift.dy))
     }
 
     public func composited(over background: CIImage, at time: Double) -> CIImage {
