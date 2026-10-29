@@ -200,20 +200,38 @@ enum Matte {
 }
 
 extension CGImage {
-    /// The image without its fully transparent edges, so a component is
-    /// placed by what it draws.
-    func trimmingTransparentEdges() -> CGImage {
-        guard let pixels = FrameStability.pixels(self) else { return self }
-        var minX = width, minY = height, maxX = -1, maxY = -1
-        for y in 0..<height {
-            let row = y * width * 4
-            for x in 0..<width where pixels[row + x * 4 + 3] > 0 {
-                minX = Swift.min(minX, x); maxX = Swift.max(maxX, x)
-                minY = Swift.min(minY, y); maxY = Swift.max(maxY, y)
+    /// `images` without the transparent edges none of them draws in, measured
+    /// from their top-left corners, so a component is placed by what it draws
+    /// and its states keep one size and place however far each one reaches. A
+    /// smaller image is padded with transparency.
+    static func trimmingTransparentEdges(_ images: [CGImage]) -> [CGImage] {
+        var minX = Int.max, minY = Int.max, maxX = -1, maxY = -1
+        for image in images {
+            guard let pixels = FrameStability.pixels(image) else { return images }
+            for y in 0..<image.height {
+                let row = y * image.width * 4
+                for x in 0..<image.width where pixels[row + x * 4 + 3] > 0 {
+                    minX = Swift.min(minX, x); maxX = Swift.max(maxX, x)
+                    minY = Swift.min(minY, y); maxY = Swift.max(maxY, y)
+                }
             }
         }
-        guard maxX >= minX, maxY >= minY else { return self }
-        return cropping(to: CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)) ?? self
+        guard maxX >= minX, maxY >= minY else { return images }
+        let bounds = CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
+        return images.map { $0.cut(to: bounds) ?? $0 }
+    }
+
+    /// The part at `rect`, measured from the top-left, transparent where it
+    /// reaches past the image.
+    private func cut(to rect: CGRect) -> CGImage? {
+        if CGRect(x: 0, y: 0, width: width, height: height).contains(rect) { return cropping(to: rect) }
+        guard let context = CGContext(
+            data: nil, width: Int(rect.width), height: Int(rect.height), bitsPerComponent: 8, bytesPerRow: 0,
+            space: colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        // Core Graphics counts up from the bottom.
+        context.draw(self, in: CGRect(x: -rect.minX, y: rect.maxY - CGFloat(height), width: CGFloat(width), height: CGFloat(height)))
+        return context.makeImage()
     }
 
     /// Premultiplied sRGB RGBA, eight bits a channel.

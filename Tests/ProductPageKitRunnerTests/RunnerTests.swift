@@ -537,14 +537,64 @@ import Testing
 }
 
 @Suite struct ComponentImageTests {
-    @Test func trimmingKeepsWhatIsDrawn() {
-        var bytes = [UInt8](repeating: 0, count: 5 * 4 * 4)
-        for index in [6, 7, 11] { bytes.replaceSubrange(index * 4..<index * 4 + 4, with: [255, 255, 255, 255]) }
-        let trimmed = CGImage.rgba(bytes, width: 5, height: 4)!.trimmingTransparentEdges()
+    /// A `width` × `height` image, clear but for white at each of `drawn`'s
+    /// (x, y), counted from the top-left.
+    static func image(width: Int, height: Int, drawn: [(Int, Int)]) -> CGImage {
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        for (x, y) in drawn {
+            let index = (y * width + x) * 4
+            bytes.replaceSubrange(index..<index + 4, with: [255, 255, 255, 255])
+        }
+        return CGImage.rgba(bytes, width: width, height: height)!
+    }
+
+    @Test func trimmingKeepsWhatIsDrawn() throws {
+        let trimmed = try #require(CGImage.trimmingTransparentEdges([Self.image(width: 5, height: 4, drawn: [(1, 1), (2, 1), (1, 2)])]).first)
         #expect(trimmed.width == 2)
         #expect(trimmed.height == 2)
-        let clear = CGImage.rgba([UInt8](repeating: 0, count: 16), width: 2, height: 2)!
-        #expect(clear.trimmingTransparentEdges().width == 2)
+        let clear = Self.image(width: 2, height: 2, drawn: [])
+        #expect(CGImage.trimmingTransparentEdges([clear]).first?.width == 2)
+    }
+
+    /// A state that draws further out, as a selected tile's shadow does,
+    /// widens every state's frame, and each keeps its place in it.
+    @Test func statesShareOneFrame() throws {
+        let plain = Self.image(width: 6, height: 3, drawn: [(2, 1), (3, 1)])
+        let selected = Self.image(width: 6, height: 3, drawn: [(1, 1), (2, 1), (3, 1), (4, 2)])
+        let trimmed = CGImage.trimmingTransparentEdges([plain, selected])
+        #expect(trimmed.map(\.width) == [4, 4])
+        #expect(trimmed.map(\.height) == [2, 2])
+        let pixels = try #require(FrameStability.pixels(trimmed[0]))
+        #expect(pixels[3] == 0)
+        #expect(pixels[4 + 3] == 255)
+    }
+
+    /// A shorter state is padded below, from the top-left corner they share.
+    @Test func aSmallerStateIsPaddedToTheFrame() throws {
+        let short = Self.image(width: 3, height: 2, drawn: [(0, 0)])
+        let tall = Self.image(width: 3, height: 4, drawn: [(0, 0), (0, 3)])
+        let trimmed = CGImage.trimmingTransparentEdges([short, tall])
+        #expect(trimmed.map(\.height) == [4, 4])
+        let pixels = try #require(FrameStability.pixels(trimmed[0]))
+        #expect(pixels[3] == 255)
+        #expect(pixels[3 * 4 + 3] == 0)
+    }
+
+    @Test func oneStaleStateRetakesTheComponentsOthers() {
+        let all = [Component("detail", state: "0"), Component("detail", state: "1"), Component("badges"),
+                   Component("detail", state: "0", variant: "plex")]
+        let stale = ScreenshotRunner.staleComponents(all) { $0 != Component("detail", state: "1") }
+        #expect(stale.map(\.fileName) == ["detail@0", "detail@1"])
+    }
+
+    @Test func statesGroupByComponentInOrder() {
+        let groups = ScreenshotRunner.stateGroups([
+            Component("detail", state: "0"), Component("badges"), Component("detail", state: "1"),
+            Component("detail", state: "0", variant: "plex"), Component("detail"),
+        ])
+        #expect(groups.map { $0.map(\.fileName) } == [
+            ["detail@0", "detail@1", "detail"], ["badges"], ["detail@0-plex"],
+        ])
     }
 
     @Test func halfOpaquePixelsKeepTheirColour() throws {

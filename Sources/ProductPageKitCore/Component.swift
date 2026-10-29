@@ -25,6 +25,10 @@ public struct Component: Hashable, Sendable, ExpressibleByStringLiteral, CustomS
         name + (state.map { "@\($0)" } ?? "") + (variant.map { "-\($0)" } ?? "")
     }
 
+    /// The component whatever its state: its states are taken together and
+    /// share one frame.
+    public var anyState: Component { Component(name, variant: variant) }
+
     public var description: String {
         var parts: [String] = []
         if let state { parts.append("state \(state)") }

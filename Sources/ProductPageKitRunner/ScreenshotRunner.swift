@@ -1,6 +1,7 @@
 #if !DEBUG
 #error("ProductPageKit's tools build in the debug configuration: the control protocol they share with apps is DEBUG only, so that no release build of an app carries it.")
 #endif
+import CoreGraphics
 public import Foundation
 public import ProductPageKitCore
 import ProductPageKitControl
@@ -362,10 +363,11 @@ public struct ScreenshotRunner: Sendable {
                     report.shots.append(file)
                     log("  \(target.platform.id) \(locale.code)  \(file.lastPathComponent)")
                 }
-                for component in planned.components {
-                    let file = try await export(component, on: target.platform, in: locale, session: session, device: device)
-                    try ledger.record(CaptureLedger.componentKey(file.lastPathComponent))
-                    report.components.append(file)
+                for states in Self.stateGroups(planned.components) {
+                    for file in try await export(states, on: target.platform, in: locale, session: session, device: device) {
+                        try ledger.record(CaptureLedger.componentKey(file.lastPathComponent))
+                        report.components.append(file)
+                    }
                 }
             } catch {
                 await device.end(pid)
@@ -414,9 +416,9 @@ public struct ScreenshotRunner: Sendable {
             let file = cache.capture(target.platform, locale, shot)
             return !ledger.isCurrent(CaptureLedger.shotKey(file.lastPathComponent), files: [file])
         }
-        let components = target.components(in: locale).filter { component in
+        let components = Self.staleComponents(target.components(in: locale)) { component in
             let file = cache.component(target.platform, locale, component)
-            return !ledger.isCurrent(CaptureLedger.componentKey(file.lastPathComponent), files: [file])
+            return ledger.isCurrent(CaptureLedger.componentKey(file.lastPathComponent), files: [file])
         }
         return (shots, components)
     }
@@ -431,19 +433,47 @@ public struct ScreenshotRunner: Sendable {
         return locales.isEmpty ? [] : CapturePlan.split(locales, into: min(forLocales, locales.count))
     }
 
-    /// Exports `component` and writes it, trimmed to what it draws.
-    private func export(_ component: Component, on platform: Platform, in locale: StoreLocale, session: AppSession,
-                        device: some CaptureDevice) async throws -> URL {
-        let request = ComponentRequest(name: component.name, state: component.state, variant: component.variant)
-        let image = try await session.export(request) { window in
-            try await FrameStability(evidence: cache.logs).settle("the component \(component) in \(locale.code)",
-                                              capture: try device.frames(ofWindow: window, showing: request))
+    /// The components of `all` to take: every state of a component one of
+    /// whose states is not current, since its states share one frame.
+    static func staleComponents(_ all: [Component], isCurrent: (Component) -> Bool) -> [Component] {
+        let stale = Set(all.filter { !isCurrent($0) }.map(\.anyState))
+        return all.filter { stale.contains($0.anyState) }
+    }
+
+    /// `components` grouped by component, its states together, in order.
+    static func stateGroups(_ components: [Component]) -> [[Component]] {
+        var groups: [[Component]] = []
+        for component in components {
+            if let index = groups.firstIndex(where: { $0[0].anyState == component.anyState }) {
+                groups[index].append(component)
+            } else {
+                groups.append([component])
+            }
         }
-        let file = cache.component(platform, locale, component)
-        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Frame(image: image.trimmingTransparentEdges()).png.write(to: file, options: .atomic)
-        log("  \(platform.id) \(locale.code)  \(component.fileName) (component)")
-        return file
+        return groups
+    }
+
+    /// Exports one component in each of `states` and writes them, trimmed
+    /// together to what any of them draws.
+    private func export(_ states: [Component], on platform: Platform, in locale: StoreLocale, session: AppSession,
+                        device: some CaptureDevice) async throws -> [URL] {
+        var images: [CGImage] = []
+        for component in states {
+            let request = ComponentRequest(name: component.name, state: component.state, variant: component.variant)
+            images.append(try await session.export(request) { window in
+                try await FrameStability(evidence: cache.logs).settle("the component \(component) in \(locale.code)",
+                                                  capture: try device.frames(ofWindow: window, showing: request))
+            })
+        }
+        var files: [URL] = []
+        for (component, image) in zip(states, CGImage.trimmingTransparentEdges(images)) {
+            let file = cache.component(platform, locale, component)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Frame(image: image).png.write(to: file, options: .atomic)
+            log("  \(platform.id) \(locale.code)  \(component.fileName) (component)")
+            files.append(file)
+        }
+        return files
     }
 
     /// Starts the app in `locale`, drawing `scene` in `variant` from its
