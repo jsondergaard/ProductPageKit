@@ -192,7 +192,14 @@ public final class CaptureDirector<Scene: CaptureScene> {
                     perform(state.applyFailed(request, reason: String(describing: error)))
                 }
             case .ready(let request):
-                connection?.send(.ready(Ready(request, window: windowInfo, moving: movingFractions)))
+                // Once the scene is on screen, not as soon as its views report:
+                // a heavy scene's conditions hold before its first frame is
+                // committed, and in between the runner photographed the frame
+                // of the scene before it.
+                FramePresentation.after { [weak self] in
+                    guard let self else { return }
+                    connection?.send(.ready(Ready(request, window: windowInfo, moving: movingFractions)))
+                }
             case .waiting(let request, let reasons):
                 connection?.send(.waiting(Waiting(request, reasons: reasons)))
             case .highlights(let request):
