@@ -22,6 +22,7 @@ public enum RunnerError: Error, CustomStringConvertible {
     case noWindow(String)
     case windowNotFound(Int)
     case unreadableCapture
+    case servicesNotSlimmed(String, missing: Int)
     case blankCapture(String, platform: String)
     case misorientedCapture(String, platform: String, size: CGSize, landscape: Bool)
     case unstable(String, frames: Int, evidence: URL?)
@@ -77,6 +78,8 @@ public enum RunnerError: Error, CustomStringConvertible {
             "Window \(number) is not on screen."
         case .unreadableCapture:
             "A capture could not be read as an image."
+        case .servicesNotSlimmed(let udid, let missing):
+            "Simulator \(udid) booted with \(missing) background services the run turns off still on, so each simulator takes several times the memory planned for. Run with --workers 1."
         case .blankCapture(let what, let platform):
             "\(what) on \(platform) came out one flat colour: the display was off or drew nothing. It was not kept."
         case .misorientedCapture(let what, let platform, let size, let landscape):

@@ -238,8 +238,11 @@ as playing video, is marked `.captureMoving()` and left out of the
 comparison.
 
 - iPhone, iPad, iPhone Duo and Apple TV run on cloned simulators, one for
-  every four cores and every 6 GB of memory past 8, at most one per locale,
-  with 9:41 in the status bar. Each takes the next locale left, so none
+  every four cores and every 3 GB of memory past 8, at most one per locale,
+  with 9:41 in the status bar, and boots without the background services
+  no app's own screens draw on (widgets, Siri, Spotlight, Health, News and
+  the like, after [SimSlim](https://github.com/MobAI-App/simslim)): about 90
+  processes and under 3 GB rather than 300 and 14 GB. Each takes the next locale left, so none
   waits on the others. Screens a test puts up take one of them first, which
   a fresh clone then replaces for the locales, or a clone of their own after
   the locales when a platform has one worker.

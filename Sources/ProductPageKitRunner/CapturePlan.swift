@@ -42,9 +42,9 @@ public struct Machine: Sendable {
         Machine(cores: ProcessInfo.processInfo.activeProcessorCount, memory: ProcessInfo.processInfo.physicalMemory)
     }
 
-    /// What one booted simulator takes: a freshly cloned iOS 27 device runs
-    /// close to 300 processes, its widgets and daemons settling in.
-    static let simulatorMemory: UInt64 = 6 << 30
+    /// What one booted worker takes: about 90 processes once `SlimServices`
+    /// are off, under 3 GB.
+    static let simulatorMemory: UInt64 = 3 << 30
     /// What the Mac keeps for itself and a build beside the simulators.
     static let reservedMemory: UInt64 = 8 << 30
 

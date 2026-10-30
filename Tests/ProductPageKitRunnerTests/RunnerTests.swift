@@ -989,3 +989,38 @@ import Testing
         #expect(throws: RunnerError.self) { try Simulators.pick(.largest, for: .iPhoneDuo, in: Array(runtimes.prefix(1))) }
     }
 }
+
+@Suite struct SlimServicesTests {
+    /// The overrides go where `launchd_sim` reads them, every slimmed label
+    /// on, and an entry the runtime wrote for itself is kept.
+    @Test func overridesAreWrittenBesideTheDevicesLaunchdLog() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = SlimServices.store("UDID", root: root)
+        #expect(file.path.hasSuffix("com.apple.CoreSimulator.SimDevice.UDID/disabled.plist"))
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try PropertyListSerialization.data(fromPropertyList: ["com.apple.nanonewscd": false], format: .xml, options: 0).write(to: file)
+        try SlimServices.write("UDID", root: root)
+        let entries = try #require(try PropertyListSerialization.propertyList(from: Data(contentsOf: file), format: nil) as? [String: Bool])
+        #expect(entries["com.apple.nanonewscd"] == false)
+        #expect(SlimServices.disabled.allSatisfy { entries[$0] == true })
+        #expect(entries.count == SlimServices.disabled.count + 1)
+    }
+
+    /// What an app's screens can need stays on.
+    @Test func storeKitICloudAndAssetsStayOn() {
+        for label in ["com.apple.storekitd", "com.apple.itunesstored", "com.apple.cloudd", "com.apple.mobileassetd",
+                      "com.apple.assistantd", "com.apple.gamed", "com.apple.sharingd"] {
+            #expect(!SlimServices.disabled.contains(label), "\(label)")
+        }
+        #expect(Set(SlimServices.disabled).count == SlimServices.disabled.count)
+    }
+
+    /// Read back from `launchctl print-disabled system`.
+    @Test func aLabelTheRuntimeLeftOnIsMissing() {
+        let all = SlimServices.disabled.map { "\t\t\"\($0)\" => disabled" }
+        #expect(SlimServices.missing(in: "\tdisabled services = {\n" + all.joined(separator: "\n") + "\n\t}").isEmpty)
+        let oneOn = all.dropFirst() + ["\t\t\"\(SlimServices.disabled[0])\" => enabled"]
+        #expect(SlimServices.missing(in: oneOn.joined(separator: "\n")) == [SlimServices.disabled[0]])
+    }
+}

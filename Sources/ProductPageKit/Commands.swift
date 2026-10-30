@@ -341,7 +341,7 @@ struct ScreenshotsCommand: AsyncParsableCommand {
         @OptionGroup var locales: LocaleFlag
         @Option(help: "Comma-separated scenes, `scene:variant` for a variant. Default: each platform's shots and the App Review screenshots.")
         var shots = ""
-        @Option(help: "Simulators per platform at once, the one for screens tests put up included. Default: one for every four cores and every 6 GB of memory past 8, at most one per locale.") var workers: Int?
+        @Option(help: "Simulators per platform at once, the one for screens tests put up included. Default: one for every four cores and every 3 GB of memory past 8, at most one per locale.") var workers: Int?
         @Flag(help: "Take every capture again. By default one taken from the same app, device and settings is kept.") var force = false
         @Flag(help: "Print what would be captured and stop.") var dryRun = false
 

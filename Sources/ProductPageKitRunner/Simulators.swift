@@ -161,10 +161,13 @@ struct Simulators: Sendable {
 
     /// A worker's device, cloned from `base` and named for this process so a
     /// later run can tell an abandoned one from another run's.
+    /// A worker cloned from `base`, set to boot without `SlimServices`.
     func clone(_ base: String, worker: Int) async throws -> String {
         let name = "\(Self.prefix) worker \(getpid())-\(worker)"
-        return String(decoding: try await simctl(["clone", base, name]), as: UTF8.self)
+        let udid = String(decoding: try await simctl(["clone", base, name]), as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        try SlimServices.write(udid)
+        return udid
     }
 
     /// Worker clones whose run ended without deleting them.
@@ -181,9 +184,14 @@ struct Simulators: Sendable {
         for device in try await abandonedWorkers() { try await delete(device.udid) }
     }
 
-    /// Returns once the device has finished booting.
+    /// Returns once the worker has finished booting, without
+    /// `SlimServices`. A runtime that ignored them would run each worker at
+    /// several times the memory the run planned for, so that stops the run.
     func boot(_ udid: String) async throws {
         _ = try await simctl(["bootstatus", udid, "-b"])
+        let disabled = String(decoding: try await simctl(["spawn", udid, "launchctl", "print-disabled", "system"]), as: UTF8.self)
+        let missing = SlimServices.missing(in: disabled)
+        guard missing.isEmpty else { throw RunnerError.servicesNotSlimmed(udid, missing: missing.count) }
     }
 
     func shutdown(_ udid: String) async throws {
@@ -197,6 +205,7 @@ struct Simulators: Sendable {
     func delete(_ udid: String) async throws {
         try await shutdown(udid)
         _ = try await simctl(["delete", udid])
+        try? FileManager.default.removeItem(at: SlimServices.store(udid).deletingLastPathComponent())
     }
 
     /// The status bar's `time`, full bars and battery, the appearance and the

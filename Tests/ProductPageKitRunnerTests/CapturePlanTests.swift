@@ -49,14 +49,15 @@ struct DevicesFrames: FrameTheme {
         #expect(small.targets[0].workers == 1)
     }
 
-    @Test func simulatorsGetSixGigabytesEachPastTheMacsOwnEight() throws {
-        #expect(Machine(cores: 15, memory: 24 << 30).simulators == 2)
+    @Test func simulatorsGetThreeGigabytesEachPastTheMacsOwnEight() throws {
+        #expect(Machine(cores: 15, memory: 24 << 30).simulators == 3)
         #expect(Machine(cores: 16, memory: 128 << 30).simulators == 4)
+        #expect(Machine(cores: 32, memory: 16 << 30).simulators == 2)
         #expect(Machine(cores: 8, memory: 8 << 30).simulators == 1)
         #expect(Machine(cores: 8, memory: 4 << 30).simulators == 1)
         let example = project()
         let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales),
-                                   machine: Machine(cores: 32, memory: 24 << 30))
+                                   machine: Machine(cores: 32, memory: 14 << 30))
         #expect(plan.targets[0].workers == 2)
     }
 
