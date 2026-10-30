@@ -111,7 +111,7 @@ struct SimulatorWorker: CaptureDevice {
 
     func frames(for ready: Ready) async throws -> @Sendable () async throws -> Frame {
         { [simulators, udid, drawsSensorBar, unfolding] in
-            try await simulators.screenshot(udid, display: unfolding?.display, masked: drawsSensorBar)
+            try await simulators.screenshot(udid, display: unfolding?.display.screenID, masked: drawsSensorBar)
         }
     }
 

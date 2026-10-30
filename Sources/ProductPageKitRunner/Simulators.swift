@@ -66,18 +66,21 @@ struct Simulators: Sendable {
         return profile["sensorBarImage"] != nil
     }
 
-    /// A foldable's inner display, the larger of its two, by screen ID. Nil
-    /// for a device that does not fold.
-    func innerDisplay(_ udid: String) async throws -> Int? {
+    /// A foldable's inner display, the larger of its two. Nil for a device
+    /// that does not fold.
+    func innerDisplay(_ udid: String) async throws -> InnerDisplay? {
         guard let bundle = try await typeBundle(udid) else { return nil }
         return Self.innerDisplay(Self.capabilities(at: bundle))
     }
 
-    static func innerDisplay(_ capabilities: [String: Any]?) -> Int? {
+    static func innerDisplay(_ capabilities: [String: Any]?) -> InnerDisplay? {
         let displays = (capabilities?["displays"] as? [[String: Any]] ?? []).filter { $0["displayType"] as? String == "integrated" }
-        guard displays.count > 1 else { return nil }
-        let inner = displays.max { area($0) < area($1) }
-        return inner.flatMap { number($0["screenID"]) }
+        guard displays.count > 1, let inner = displays.max(by: { area($0) < area($1) }),
+              let screenID = number(inner["screenID"]), let width = number(inner["width"]), let height = number(inner["height"])
+        else { return nil }
+        // Opened flat, the display turns to its native rotation.
+        let turned = (number(inner["nativeRotation"]) ?? 0) % 180 == 90
+        return InnerDisplay(screenID: screenID, openSize: turned ? CGSize(width: height, height: width) : CGSize(width: width, height: height))
     }
 
     private static func area(_ display: [String: Any]) -> Int {
@@ -347,15 +350,15 @@ struct Simulators: Sendable {
         return try Frame(png: try Data(contentsOf: file))
     }
 
-    /// Opens a foldable flat, then returns once its inner display draws and
-    /// has come to rest, so an app launched next starts there. The system
+    /// Opens a foldable flat, then returns once its inner display draws
+    /// opened and has come to rest, so an app launched next starts there. The system
     /// ignores the hinge for some seconds after `boot` returns, so the angle
     /// is sent again each second until it takes.
     func unfold(_ udid: String, _ unfolding: Unfolding) async throws {
         for _ in 0..<Self.unfoldAttempts {
-            if try await screenshot(udid, display: unfolding.display).showsContent {
+            if unfolding.display.showsOpen(try await screenshot(udid, display: unfolding.display.screenID)) {
                 _ = try await FrameStability().settle("simulator \(udid) opening flat") {
-                    try await screenshot(udid, display: unfolding.display)
+                    try await screenshot(udid, display: unfolding.display.screenID)
                 }
                 return
             }

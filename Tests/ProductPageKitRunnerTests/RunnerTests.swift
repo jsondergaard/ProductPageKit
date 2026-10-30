@@ -926,15 +926,40 @@ import Testing
         #expect(Simulators.pixels(duo) == 1398 * 2000)
     }
 
-    /// The inner display is the larger built-in one; a phone has none.
+    /// The inner display is the larger built-in one, opened at its native
+    /// rotation; a phone has none.
     @Test func aFoldablesInnerDisplayIsItsLargerBuiltInOne() {
-        func capabilities(_ widths: [Int]) -> [String: Any] {
-            ["displays": widths.enumerated().map { ["displayType": "integrated", "width": $1, "height": 2000, "screenID": $0 * 2 + 1] }
-                + [["displayType": "scene", "width": 7680, "height": 4320, "screenID": 9]]]
+        func capabilities(_ widths: [Int], rotation: Int = 270) -> [String: Any] {
+            ["displays": widths.enumerated().map {
+                ["displayType": "integrated", "width": $1, "height": 2853, "screenID": $0 * 2 + 1, "nativeRotation": $0 * rotation]
+            } + [["displayType": "scene", "width": 7680, "height": 4320, "screenID": 9]]]
         }
-        #expect(Simulators.innerDisplay(capabilities([1398, 2007])) == 3)
-        #expect(Simulators.innerDisplay(capabilities([2007, 1398])) == 1)
+        #expect(Simulators.innerDisplay(capabilities([1398, 2007])) == InnerDisplay(screenID: 3, openSize: CGSize(width: 2853, height: 2007)))
+        #expect(Simulators.innerDisplay(capabilities([2007, 1398])) == InnerDisplay(screenID: 1, openSize: CGSize(width: 2007, height: 2853)))
+        #expect(Simulators.innerDisplay(capabilities([1398, 2007], rotation: 180))?.openSize == CGSize(width: 2007, height: 2853))
         #expect(Simulators.innerDisplay(capabilities([1320])) == nil)
+    }
+
+    /// Folded, the inner display photographs at its unturned size: black
+    /// before iOS 27.2, a spinner on black since. Only the turned size with
+    /// something drawn is open.
+    @Test func aFoldedInnerDisplayIsNotOpenWhateverItDraws() throws {
+        let display = InnerDisplay(screenID: 3, openSize: CGSize(width: 120, height: 80))
+        func frame(width: Int, height: Int, drawn: Bool) throws -> Frame {
+            var pixels = [UInt8](repeating: 0, count: width * height * 4)
+            for pixel in stride(from: 3, to: pixels.count, by: 4) { pixels[pixel] = 255 }
+            if drawn {
+                // A small grey mark in the middle, as the spinner is.
+                for y in height / 2 - 4..<height / 2 + 4 {
+                    for x in width / 2 - 4..<width / 2 + 4 { pixels.replaceSubrange((y * width + x) * 4..<(y * width + x) * 4 + 3, with: [200, 200, 200]) }
+                }
+            }
+            return try Frame(image: try #require(CGImage.rgba(pixels, width: width, height: height)))
+        }
+        #expect(!display.showsOpen(try frame(width: 80, height: 120, drawn: false)))
+        #expect(!display.showsOpen(try frame(width: 80, height: 120, drawn: true)))
+        #expect(!display.showsOpen(try frame(width: 120, height: 80, drawn: false)))
+        #expect(display.showsOpen(try frame(width: 120, height: 80, drawn: true)))
     }
 
     /// iOS 27.1 shipped for iPhone Duo alone: the other iPhones stay on the

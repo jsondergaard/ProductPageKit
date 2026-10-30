@@ -75,7 +75,19 @@ struct Hinge: Sendable {
 /// How a foldable worker is opened flat and photographed on its inner
 /// display.
 struct Unfolding: Sendable {
-    /// The inner display's screen ID, for `simctl io screenshot --display`.
-    let display: Int
+    let display: InnerDisplay
     let hinge: Hinge
+}
+
+/// A foldable's inner display: its screen ID, for `simctl io screenshot
+/// --display`, and the size it photographs at once opened flat.
+struct InnerDisplay: Equatable, Sendable {
+    let screenID: Int
+    let openSize: CGSize
+
+    /// Whether `frame` shows the display opened. Folded, it photographs at
+    /// its unturned size: black before iOS 27.2, a spinner since.
+    func showsOpen(_ frame: Frame) -> Bool {
+        CGSize(width: frame.image.width, height: frame.image.height) == openSize && frame.showsContent
+    }
 }
