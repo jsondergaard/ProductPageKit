@@ -51,16 +51,12 @@ struct Frame: @unchecked Sendable {
         return (0..<side * side * 4).contains { $0 % 4 != 3 && abs(Int(pixels[$0]) - Int(pixels[$0 % 4])) > 8 }
     }
 
-    /// Throws when the frame cannot be a capture of `what` on `platform`: one
-    /// flat colour, or turned the other way from how the platform captures.
-    /// Checked before a capture is stored, so a run that keeps unchanged
-    /// captures takes it again.
+    /// Throws when the frame is one flat colour, which no capture of `what`
+    /// on `platform` is. Checked before a capture is stored, so a run that
+    /// keeps unchanged captures takes it again. Its shape says nothing: a
+    /// scene can turn the device on its side.
     func check(_ what: String, on platform: Platform) throws {
         guard showsContent else { throw RunnerError.blankCapture(what, platform: platform.name) }
-        let size = CGSize(width: image.width, height: image.height)
-        if let landscape = platform.capturesLandscape, (size.width > size.height) != landscape {
-            throw RunnerError.misorientedCapture(what, platform: platform.name, size: size, landscape: landscape)
-        }
     }
 
     /// Fractions of the frame, as the app reports them, in its pixels.

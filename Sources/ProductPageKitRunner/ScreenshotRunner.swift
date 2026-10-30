@@ -663,17 +663,6 @@ extension Platform {
         if case .simulator = capture { true } else { false }
     }
 
-    /// Whether a capture comes out wider than tall: an Apple TV's, and an
-    /// iPhone Duo's inner display. Nil for a Mac window, which is whatever
-    /// size the project gives it.
-    var capturesLandscape: Bool? {
-        guard isSimulated else { return nil }
-        return switch kind {
-        case .iPhoneDuo, .appleTV, .mac: true
-        case .iPhone, .iPad: false
-        }
-    }
-
     var controlPlatform: ControlPlatform {
         switch kind {
         case .iPhone, .iPad, .iPhoneDuo: .iOS

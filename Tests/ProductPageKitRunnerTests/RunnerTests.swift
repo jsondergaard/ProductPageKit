@@ -43,31 +43,11 @@ import Testing
         }
     }
 
-    /// An iPhone Duo folded, or an iPhone on its side, photographs turned
-    /// the wrong way. A Mac window is any shape it is given.
-    @Test func aCaptureTurnedTheOtherWayIsRefused() throws {
-        let wide = try Frame(image: image(marked: 5000, width: 150))
-        let tall = try Frame(image: image(marked: 5000, width: 60))
-        try wide.check("home in en", on: .iPhoneDuo())
-        try wide.check("home in en", on: .appleTV())
-        try tall.check("home in en", on: .iPhone())
-        try tall.check("home in en", on: .iPad())
-        try tall.check("home in en", on: .mac(window: CGSize(width: 60, height: 100)))
-        try wide.check("home in en", on: .mac(window: CGSize(width: 150, height: 100)))
-        for (frame, platform) in [(tall, Platform.iPhoneDuo()), (tall, .appleTV()), (wide, .iPhone()), (wide, .iPad())] {
-            #expect {
-                try frame.check("home in en", on: platform)
-            } throws: { error in
-                guard case RunnerError.misorientedCapture("home in en", platform.name, _, let landscape) = error else { return false }
-                return landscape == (platform.kind == .iPhoneDuo || platform.kind == .appleTV)
-            }
-        }
-    }
-
-    @Test func aRefusedCaptureSaysWhatCameOut() {
-        #expect(RunnerError.misorientedCapture("home in en", platform: "iPhone Duo", size: CGSize(width: 2007, height: 2853),
-                                               landscape: true).description
-                == "home in en on iPhone Duo came out 2007 × 2853, where iPhone Duo captures landscape. It was not kept.")
+    /// A player turns an iPhone on its side; a frame of any shape with
+    /// something drawn is kept.
+    @Test func aCaptureOnItsSideIsKept() throws {
+        try Frame(image: image(marked: 5000, width: 150)).check("player in en", on: .iPhone())
+        try Frame(image: image(marked: 5000, width: 60)).check("player in en", on: .appleTV())
     }
 
     @Test func framesMatchWithinTheTolerance() {
