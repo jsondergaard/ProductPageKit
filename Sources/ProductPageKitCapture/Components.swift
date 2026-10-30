@@ -137,16 +137,20 @@ final class ComponentExporter {
     /// Lays a component out until its size settles and every condition in it
     /// holds, or fails it after the deadline.
     private func settle(_ host: ComponentHost, layout: () -> Void) async throws {
-        for _ in 0..<Self.attempts {
+        let deadline = ContinuousClock.now + Self.deadline
+        while ContinuousClock.now < deadline {
             layout()
             if host.conditionsMet { return }
-            try await Task.sleep(for: .milliseconds(250))
+            try await Task.sleep(for: Self.interval)
         }
         throw ComponentError.notReady
     }
 
-    /// Half a minute, a quarter of a second at a time.
-    static let attempts = 120
+    /// How long a component may take to load, and to hold still.
+    static let deadline: Duration = .seconds(30)
+    /// Between looks: animations are off while a runner drives the app, so a
+    /// component that has stopped changing has stopped for good.
+    static let interval: Duration = .milliseconds(50)
 
     #if os(macOS)
     /// Shows the component in a window of its own, where the window server
@@ -237,14 +241,15 @@ final class ComponentExporter {
         try await settle(host) { Self.layOut(controller, on: stage, component: component) }
         let scale = max(window.screen.scale, component.scale ?? 0)
         var previous: Data?
-        for _ in 0..<Self.attempts {
+        let deadline = ContinuousClock.now + Self.deadline
+        while ContinuousClock.now < deadline {
             let png = try Self.draw(controller.view, scale: scale)
             if png == previous {
                 send(.exported(ExportedComponent(request, png: png)))
                 return
             }
             previous = png
-            try await Task.sleep(for: .milliseconds(250))
+            try await Task.sleep(for: Self.interval)
             Self.layOut(controller, on: stage, component: component)
         }
         throw ComponentError.unstable
@@ -295,6 +300,7 @@ final class ComponentHost {
 
     func wrap(_ view: AnyView) -> AnyView {
         AnyView(view
+            .withoutAnimations(true)
             .environment(\.isCapturingScreenshots, true)
             .onPreferenceChange(CaptureReadinessKey.self) { [weak self] readiness in
                 MainActor.assumeIsolated { self?.conditionsMet = readiness.conditionsMet }

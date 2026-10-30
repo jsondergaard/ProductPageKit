@@ -151,6 +151,11 @@ public final class CaptureDirector<Scene: CaptureScene> {
             self?.connection = nil
         }
         self.connection = connection
+        #if !os(macOS)
+        // Each scene is photographed where it comes to rest; an animation
+        // only holds the runner's check for two matching frames back.
+        UIView.setAnimationsEnabled(false)
+        #endif
         components.connect { [weak connection] in connection?.send($0) }
         connection.start()
         connection.send(.hello(Hello(

@@ -92,8 +92,10 @@ private struct DirectorModifier<Scene: CaptureScene>: ViewModifier {
 
     func body(content: Content) -> some View {
         let generation = director.generation
+        let capturing = director.isCapturing
         content
-            .environment(\.isCapturingScreenshots, director.isCapturing)
+            .withoutAnimations(capturing)
+            .environment(\.isCapturingScreenshots, capturing)
             .environment(\.captureHighlights, director.highlights)
             .environment(\.captureConditions, director.conditions)
             .environment(\.captureMoving, director.moving)
@@ -109,6 +111,18 @@ private struct DirectorModifier<Scene: CaptureScene>: ViewModifier {
             }
             .background(WindowReader { director.attach($0) })
             .onAppear { director.start(apply: apply) }
+    }
+}
+
+extension View {
+    /// Every change lands at once while `on`: a fade or a slide only holds
+    /// back the check for two matching frames.
+    func withoutAnimations(_ on: Bool) -> some View {
+        transaction { transaction in
+            guard on else { return }
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
     }
 }
 
