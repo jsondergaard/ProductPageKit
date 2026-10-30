@@ -199,7 +199,7 @@ Outside a terminal, no arguments prints the help.
 | `products storekit` | Writes the StoreKit configuration file from the catalogue. |
 | `builds list` | Lists the builds App Store Connect has, newest first: version, platform, processing state and who can test them. |
 | `builds upload` | Archives every platform as the next build, then uploads each to TestFlight. Never submits for review. |
-| `export <dir>` | Copies the framed screenshots, the videos and the renders out of the cache. A custom page's or treatment's screenshots go in a folder of their own. |
+| `export <dir>` | Copies the framed screenshots, the videos and the renders out of the cache. A custom page's or treatment's screenshots go in a folder of their own. `--platforms` and `--locales` narrow it; videos come only with an iOS platform. |
 | `cache size`, `cache prune` | Shows what the cache holds; deletes the build, its logs, and files nothing points to. |
 | `doctor` | Checks Xcode, the simulators, Screen Recording and the App Store Connect credentials. |
 

@@ -3,24 +3,29 @@ import Foundation
 import ProductPageKitCore
 
 extension Commands {
-    /// Frames the screenshots and renders the videos, then copies them to
-    /// `<directory>/<platform>/<locale>/` and `<directory>/videos/<locale>/`.
-    /// A relative `directory` is inside `base`.
-    static func export(_ session: Session, to directory: String,
+    /// Frames the screenshots and renders the videos of the platforms and
+    /// locales the flags name, then copies them to
+    /// `<directory>/<platform>/<locale>/`, `<directory>/videos/<locale>/` and
+    /// `<directory>/renders/<platform>/`. Videos go to the iOS product page,
+    /// so they come only with an iOS platform. A relative `directory` is
+    /// inside `base`.
+    static func export(_ session: Session, to directory: String, platforms: String = "", locales: String = "",
                        from base: String = FileManager.default.currentDirectoryPath) async throws {
         try session.checkProject()
         let project = session.project
+        let platforms = try session.platforms(platforms)
+        let locales = try session.locales(locales)
         let destination = URL(filePath: directory, directoryHint: .isDirectory,
                               relativeTo: URL(filePath: base, directoryHint: .isDirectory)).standardizedFileURL
-        var files: [(URL, String)] = try await frameScreenshots(session, platforms: project.platforms, locales: project.locales)
+        var files: [(URL, String)] = try await frameScreenshots(session, platforms: platforms, locales: locales)
             .screenshots.map { ($0.url, $0.exportPath) }
-        if project.videos != nil {
-            files += try await renderVideos(session, locales: project.locales).videos
+        if project.videos != nil, platforms.contains(where: { $0.storePlatform == .iOS }) {
+            files += try await renderVideos(session, locales: locales).videos
                 .map { ($0.url, "videos/\($0.locale.code)/\($0.asset.kind.rawValue).mp4") }
         }
         var uncaptured: [String] = []
         for render in project.renders {
-            guard let platform = project.platform(render.source.platform) else { continue }
+            guard let platform = platforms.first(where: { $0.kind == render.source.platform }) else { continue }
             let file = session.cache.file(render, on: platform, in: project.primaryLocale)
             guard FileManager.default.fileExists(atPath: file.path) else {
                 uncaptured.append(render.name)
@@ -94,11 +99,13 @@ struct ExportCommand: AsyncParsableCommand {
         abstract: "Copy the framed screenshots and the videos out of the cache, framing and rendering first."
     )
     @Argument(help: "The directory to copy into.") var directory: String
+    @OptionGroup var platforms: PlatformFlag
+    @OptionGroup var locales: LocaleFlag
 
     func run() async throws {
         let session = try Session.get()
-        let directory = directory
-        try await cancellingOnInterrupt { try await Commands.export(session, to: directory) }
+        let (directory, platforms, locales) = (directory, platforms.platforms, locales.locales)
+        try await cancellingOnInterrupt { try await Commands.export(session, to: directory, platforms: platforms, locales: locales) }
     }
 }
 

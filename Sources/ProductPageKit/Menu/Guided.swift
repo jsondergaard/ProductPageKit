@@ -188,7 +188,8 @@ extension ReviewCommand: Guided {}
 
 extension ExportCommand: Guided {
     static func arguments(_ ask: Prompter, _ project: Project) throws(MenuExit) -> [String] {
-        [try ask.type("Copy the screenshots and videos into which directory?")]
+        try ask.platforms(project.platforms).arguments + ask.locales(project.locales)
+            + [ask.type("Copy the screenshots and videos into which directory?")]
     }
 }
 

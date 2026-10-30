@@ -453,6 +453,35 @@ import ProductPageKitTestSupport
         #expect(fixture.console.output.contains("Exported 12 files to"))
     }
 
+    /// The flags narrow the screenshots and renders to their platforms and
+    /// the screenshots and videos to their locales.
+    @Test func exportCopiesOnlyThePlatformsAndLocalesNamed() async throws {
+        let fixture = try Fixture(themes: [.frames, .videos])
+        fixture.project.renders = [Render("home-site", .capture("home", on: .mac)), Render("settings", .capture("settings", on: .iPhone))]
+        try fixture.writeCaptures()
+        let destination = fixture.root.appending(path: "export")
+        try await Commands.export(fixture.session, to: destination.path, platforms: "ios", locales: "da")
+        let files = try FileManager.default.subpathsOfDirectory(atPath: destination.path).filter { $0.contains(".") }.sorted()
+        #expect(files == ["ios/da/01_home.png", "ios/da/02_list.png", "renders/ios/settings.png", "videos/da/header.mp4"])
+    }
+
+    /// Videos belong to the iOS product page, so a Mac export leaves them out.
+    @Test func exportWithoutAnIOSPlatformLeavesOutTheVideos() async throws {
+        let fixture = try Fixture(themes: [.frames, .videos])
+        try fixture.writeCaptures()
+        let destination = fixture.root.appending(path: "export")
+        try await Commands.export(fixture.session, to: destination.path, platforms: "macos")
+        let files = try FileManager.default.subpathsOfDirectory(atPath: destination.path).filter { $0.contains(".") }.sorted()
+        #expect(files == ["macos/da/01_home.png", "macos/en/01_home.png"])
+    }
+
+    @Test func exportStopsOnAnUnknownLocale() async throws {
+        let fixture = try Fixture(themes: .frames)
+        await #expect(throws: (any Error).self) {
+            try await Commands.export(fixture.session, to: fixture.root.appending(path: "export").path, locales: "xx")
+        }
+    }
+
     /// A relative directory is inside the one the command runs in, not beside it.
     @Test func exportResolvesARelativeDirectoryInsideTheBase() async throws {
         let fixture = try Fixture(themes: [.frames, .videos])

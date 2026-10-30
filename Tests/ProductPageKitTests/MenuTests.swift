@@ -217,6 +217,13 @@ final class ScriptedTerminal: MenuTerminal {
         #expect(terminal.screens.last?.dropFirst(4).prefix(2).map(\.text) == ["[ ] home   ", "[x] list   "])
     }
 
+    @Test func exportAsksForPlatformsAndLocalesBeforeTheDirectory() throws {
+        let project = try Self.fixture().project
+        let terminal = ScriptedTerminal([.down, .space, .enter, .down, .space, .enter] + ScriptedTerminal.typed("out") + [.enter])
+        #expect(try ExportCommand.arguments(Prompter(terminal: terminal, path: []), project)
+            == ["--platforms", "ios", "--locales", "en", "out"])
+    }
+
     @Test func aWriteCanBeADryRunOrApplied() throws {
         let project = try Self.fixture().project
         #expect(try ProductsCommand.Push.arguments(Prompter(terminal: ScriptedTerminal([.down, .enter]), path: []), project) == ["--dry-run"])
