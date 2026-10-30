@@ -37,7 +37,8 @@ struct Frame: @unchecked Sendable {
     }
 
     /// Whether the frame shows anything: a display that is off photographs
-    /// black. Read from a 64 × 64 reduction, which is enough to tell.
+    /// black, and no screen worth keeping is one flat colour. Read from a
+    /// 64 × 64 reduction, which is enough to tell.
     var showsContent: Bool {
         let side = 64
         guard let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
@@ -47,7 +48,19 @@ struct Frame: @unchecked Sendable {
         context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
         guard let data = context.data else { return false }
         let pixels = data.bindMemory(to: UInt8.self, capacity: side * side * 4)
-        return (0..<side * side * 4).contains { $0 % 4 != 3 && pixels[$0] > 8 }
+        return (0..<side * side * 4).contains { $0 % 4 != 3 && abs(Int(pixels[$0]) - Int(pixels[$0 % 4])) > 8 }
+    }
+
+    /// Throws when the frame cannot be a capture of `what` on `platform`: one
+    /// flat colour, or turned the other way from how the platform captures.
+    /// Checked before a capture is stored, so a run that keeps unchanged
+    /// captures takes it again.
+    func check(_ what: String, on platform: Platform) throws {
+        guard showsContent else { throw RunnerError.blankCapture(what, platform: platform.name) }
+        let size = CGSize(width: image.width, height: image.height)
+        if let landscape = platform.capturesLandscape, (size.width > size.height) != landscape {
+            throw RunnerError.misorientedCapture(what, platform: platform.name, size: size, landscape: landscape)
+        }
     }
 
     /// Fractions of the frame, as the app reports them, in its pixels.

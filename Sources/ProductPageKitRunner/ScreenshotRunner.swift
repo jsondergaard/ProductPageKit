@@ -356,6 +356,7 @@ public struct ScreenshotRunner: Sendable {
                                                                           remeasuring: { try await session.moving(ready.request) },
                                                                           capture: try await device.frames(for: ready))
                     }
+                    try frame.check("\(shot) in \(locale.code)", on: target.platform)
                     let file = cache.capture(target.platform, locale, shot)
                     try frame.png.write(to: file, options: .atomic)
                     try highlights.write(for: file)
@@ -562,6 +563,7 @@ public struct ScreenshotRunner: Sendable {
                                                                       remeasuring: { try await session.moving(ready.request) },
                                                                       capture: try await device.frames(for: ready))
                 }
+                try frame.check("\(capture.scene) from \(test)", on: platform)
                 let file = file(for: capture, on: platform)
                 try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try frame.png.write(to: file, options: .atomic)
@@ -653,6 +655,17 @@ extension Platform.Kind {
 extension Platform {
     var isSimulated: Bool {
         if case .simulator = capture { true } else { false }
+    }
+
+    /// Whether a capture comes out wider than tall: an Apple TV's, and an
+    /// iPhone Duo's inner display. Nil for a Mac window, which is whatever
+    /// size the project gives it.
+    var capturesLandscape: Bool? {
+        guard isSimulated else { return nil }
+        return switch kind {
+        case .iPhoneDuo, .appleTV, .mac: true
+        case .iPhone, .iPad: false
+        }
     }
 
     var controlPlatform: ControlPlatform {

@@ -204,6 +204,26 @@ struct CaptureTests {
         #expect(try await run(force: true).shots.count == 1)
     }
 
+    /// A capture of one flat colour stops the run and is neither stored nor
+    /// recorded as taken, so the next run takes it again.
+    @Test func aBlankCaptureIsNotKept() async throws {
+        let (session, _) = session
+        let platform = Self.project.platforms[1]
+        let file = session.cache.capture(platform, Self.en, Shot("blank"))
+        try? FileManager.default.removeItem(at: file)
+        await #expect {
+            try await Commands.captureScreenshots(session, platforms: "tvos", locales: "en", shots: "blank",
+                                                  workers: 1, force: true, dryRun: false)
+        } throws: { error in
+            guard case RunnerError.blankCapture("blank in en", platform: "Apple TV") = error else { return false }
+            return true
+        }
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        let ledger = session.cache.directory.appending(path: "ledger/\(platform.id)/en.json")
+        let stamps = (try? JSONDecoder().decode([String: String].self, from: Data(contentsOf: ledger))) ?? [:]
+        #expect(stamps[CaptureLedger.shotKey(file.lastPathComponent)] == nil)
+    }
+
     /// An iPhone Duo simulator boots folded; the capture opens it flat and
     /// photographs its inner display, which is landscape.
     @Test func iPhoneDuoIsCapturedOpenedFlat() async throws {

@@ -3,7 +3,7 @@ import SwiftUI
 import ProductPageKitCapture
 #endif
 
-/// The app the integration tests capture: three scenes, the detail scene with
+/// The app the integration tests capture: four scenes, the detail scene with
 /// a colour variant decided at launch, and a basket component, in English and
 /// Danish.
 @main
@@ -44,6 +44,8 @@ enum SampleScene: String, CaseIterable {
     case list
     case detail
     case settings
+    /// Nothing but black, as a display that is off photographs.
+    case blank
 }
 
 #if DEBUG
@@ -97,6 +99,8 @@ struct RootView: View {
                     Toggle("Weekly summary", isOn: .constant(false))
                 }
                 .navigationTitle("Settings")
+            case .blank:
+                Color.black.ignoresSafeArea()
             }
         }
         .task { await model.load() }

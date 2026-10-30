@@ -22,6 +22,8 @@ public enum RunnerError: Error, CustomStringConvertible {
     case noWindow(String)
     case windowNotFound(Int)
     case unreadableCapture
+    case blankCapture(String, platform: String)
+    case misorientedCapture(String, platform: String, size: CGSize, landscape: Bool)
     case unstable(String, frames: Int, evidence: URL?)
     case testDidNotConnect(String, log: URL)
     case componentFailed(String, String)
@@ -75,6 +77,11 @@ public enum RunnerError: Error, CustomStringConvertible {
             "Window \(number) is not on screen."
         case .unreadableCapture:
             "A capture could not be read as an image."
+        case .blankCapture(let what, let platform):
+            "\(what) on \(platform) came out one flat colour: the display was off or drew nothing. It was not kept."
+        case .misorientedCapture(let what, let platform, let size, let landscape):
+            "\(what) on \(platform) came out \(Int(size.width)) × \(Int(size.height)), "
+                + "where \(platform) captures \(landscape ? "landscape" : "portrait"). It was not kept."
         case .unstable(let what, let frames, let evidence):
             "\(what) was still changing after \(frames) frames. Hold `.captureReady` false until it settles, or mark what moves on purpose `.captureMoving()`."
                 + (evidence.map { " What changed between the last two frames is in red in \($0.path)." } ?? "")

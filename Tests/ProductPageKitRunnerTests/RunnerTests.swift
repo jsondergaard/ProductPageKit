@@ -19,10 +19,55 @@ import Testing
                        provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
     }
 
-    /// A display that is off photographs black in the middle.
-    @Test func aBlackFrameShowsNothing() throws {
+    /// A display that is off photographs black, and a frame of one flat
+    /// colour shows nothing either.
+    @Test func aFlatFrameShowsNothing() throws {
         #expect(!(try Frame(image: image(marked: 100 * 100, mark: [0, 0, 0, 255]))).showsContent)
-        #expect(try Frame(image: image()).showsContent)
+        #expect(!(try Frame(image: image())).showsContent)
+        #expect(try Frame(image: image(marked: 5000)).showsContent)
+        // Lighter and darker than the first pixel both count.
+        #expect(try Frame(image: image(marked: 5000, mark: [0, 0, 0, 255])).showsContent)
+        #expect(try Frame(image: image(marked: 100 * 100 - 1, mark: [0, 0, 0, 255])).showsContent)
+    }
+
+    /// A flat frame is never stored, whatever the platform.
+    @Test func aFlatCaptureIsRefused() throws {
+        let flat = try Frame(image: image())
+        for platform in [Platform.iPhone(), .appleTV(), .mac(window: CGSize(width: 100, height: 100))] {
+            #expect {
+                try flat.check("home in en", on: platform)
+            } throws: { error in
+                guard case RunnerError.blankCapture("home in en", platform.name) = error else { return false }
+                return true
+            }
+        }
+    }
+
+    /// An iPhone Duo folded, or an iPhone on its side, photographs turned
+    /// the wrong way. A Mac window is any shape it is given.
+    @Test func aCaptureTurnedTheOtherWayIsRefused() throws {
+        let wide = try Frame(image: image(marked: 5000, width: 150))
+        let tall = try Frame(image: image(marked: 5000, width: 60))
+        try wide.check("home in en", on: .iPhoneDuo())
+        try wide.check("home in en", on: .appleTV())
+        try tall.check("home in en", on: .iPhone())
+        try tall.check("home in en", on: .iPad())
+        try tall.check("home in en", on: .mac(window: CGSize(width: 60, height: 100)))
+        try wide.check("home in en", on: .mac(window: CGSize(width: 150, height: 100)))
+        for (frame, platform) in [(tall, Platform.iPhoneDuo()), (tall, .appleTV()), (wide, .iPhone()), (wide, .iPad())] {
+            #expect {
+                try frame.check("home in en", on: platform)
+            } throws: { error in
+                guard case RunnerError.misorientedCapture("home in en", platform.name, _, let landscape) = error else { return false }
+                return landscape == (platform.kind == .iPhoneDuo || platform.kind == .appleTV)
+            }
+        }
+    }
+
+    @Test func aRefusedCaptureSaysWhatCameOut() {
+        #expect(RunnerError.misorientedCapture("home in en", platform: "iPhone Duo", size: CGSize(width: 2007, height: 2853),
+                                               landscape: true).description
+                == "home in en on iPhone Duo came out 2007 × 2853, where iPhone Duo captures landscape. It was not kept.")
     }
 
     @Test func framesMatchWithinTheTolerance() {
