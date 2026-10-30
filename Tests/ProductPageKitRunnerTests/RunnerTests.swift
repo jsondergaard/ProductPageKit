@@ -95,14 +95,6 @@ import Testing
         #expect(frame.png == frames[1].png)
     }
 
-    /// Straight after the simulator's bridge restarts, its screenshots come
-    /// without the display's mask, which blacks the corners.
-    @Test func aScreenshotWithItsCornersMaskedIsComposedAsUsual() throws {
-        #expect(try Frame(image: image(marked: 1, mark: [0, 0, 0, 255])).isMasked)
-        #expect(try !Frame(image: image(marked: 1)).isMasked)
-        #expect(try !Frame(image: image()).isMasked)
-    }
-
     /// It fails, and leaves its last frames and what changed between them.
     @Test func aSceneThatNeverSettlesFails() async throws {
         let evidence = FileManager.default.temporaryDirectory.appending(path: "FrameStabilityTests-\(UUID().uuidString)")

@@ -236,7 +236,6 @@ public struct ScreenshotRunner: Sendable {
             let alongside = testing && slots > 1
             log("\(target.platform.name): \(counted(slots, "worker")) on \(name)"
                 + (testing && !alongside ? ", the tests' screens after the locales" : ""))
-            let drawsSensorBar = try await simulators.drawsSensorBar(base)
             let unfolding: Unfolding? = if let display = try await simulators.innerDisplay(base) {
                 Unfolding(display: display, hinge: try await Hinge.build(in: build.cache.derivedData.appending(path: "Hinge")))
             } else {
@@ -247,7 +246,7 @@ public struct ScreenshotRunner: Sendable {
                                 appearance: project.appearance, contentSize: project.contentSize,
                                 statusBar: target.platform.kind.statusBar,
                                 systemLocale: project.simulatorLocale == .primary ? project.primaryLocale : nil,
-                                time: clock, drawsSensorBar: drawsSensorBar, unfolding: unfolding)
+                                time: clock, unfolding: unfolding)
             }
             let testScreens: @Sendable (Int) async throws -> CaptureReport = { slot in
                 try await workers.using(slot: slot) { device in

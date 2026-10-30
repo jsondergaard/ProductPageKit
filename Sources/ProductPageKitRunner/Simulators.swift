@@ -58,14 +58,6 @@ struct Simulators: Sendable {
         return list.devices.flatMap { runtime, devices in devices.map { (runtime, $0) } }
     }
 
-    /// Whether the device's type draws a sensor bar, the Dynamic Island.
-    func drawsSensorBar(_ udid: String) async throws -> Bool {
-        guard let bundle = try await typeBundle(udid),
-              let profile = NSDictionary(contentsOf: bundle.appending(path: "Contents/Resources/profile.plist"))
-        else { return false }
-        return profile["sensorBarImage"] != nil
-    }
-
     /// A foldable's inner display, the larger of its two. Nil for a device
     /// that does not fold.
     func innerDisplay(_ udid: String) async throws -> InnerDisplay? {
@@ -331,31 +323,16 @@ struct Simulators: Sendable {
         _ = try? await simctl(["terminate", udid, bundleID])
     }
 
-    /// A device that draws a sensor bar has its screenshots composed with the
-    /// display's mask, which blacks the corners. Now and then, and for a
-    /// while after the bridge restarts, one comes without the mask and with
-    /// the sensor bar drawn black over the status bar; with `masked`, that
-    /// one is taken again.
-    func screenshot(_ udid: String, display: Int?, masked: Bool) async throws -> Frame {
-        for _ in 0..<Self.compositionAttempts {
-            let frame = try await screenshot(udid, display: display)
-            if !masked || frame.isMasked { return frame }
-            try await Task.sleep(for: .milliseconds(250))
-        }
-        throw RunnerError.timedOut("simulator \(udid) to compose a screenshot with its display's mask")
-    }
-
-    /// A quarter of a second apart: a busy machine has taken several seconds.
-    static let compositionAttempts = 80
-
     /// `simctl io` writes to a file and nowhere else. Without `display`, the
-    /// main display, a foldable's outer one, which is composed with its mask;
-    /// another display is only when asked.
-    private func screenshot(_ udid: String, display: Int?) async throws -> Frame {
+    /// main display, a foldable's outer one. Always composed with the
+    /// display's mask, its corners and any Dynamic Island black: left to
+    /// itself, `simctl` composes about one screenshot in six without it, at
+    /// random.
+    func screenshot(_ udid: String, display: Int?) async throws -> Frame {
         let file = FileManager.default.temporaryDirectory.appending(path: "ProductPageKit-\(udid).png")
         defer { try? FileManager.default.removeItem(at: file) }
-        let other = display.map { ["--display=\($0)", "--mask=black"] } ?? []
-        _ = try await simctl(["io", udid, "screenshot", "--type=png"] + other + [file.path])
+        let other = display.map { ["--display=\($0)"] } ?? []
+        _ = try await simctl(["io", udid, "screenshot", "--type=png", "--mask=black"] + other + [file.path])
         return try Frame(png: try Data(contentsOf: file))
     }
 

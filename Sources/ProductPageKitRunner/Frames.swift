@@ -27,15 +27,6 @@ struct Frame: @unchecked Sendable {
         png = data as Data
     }
 
-    /// Whether the display's mask is drawn: a simulator screenshot composed
-    /// as usual has the rounded corners masked black.
-    var isMasked: Bool {
-        guard let corner = image.cropping(to: CGRect(x: 0, y: 0, width: 1, height: 1)),
-              let pixel = FrameStability.pixels(corner)
-        else { return false }
-        return pixel[0] == 0 && pixel[1] == 0 && pixel[2] == 0 && pixel[3] == 255
-    }
-
     /// Whether the frame shows anything: a display that is off photographs
     /// black, and no screen worth keeping is one flat colour. Read from a
     /// 64 × 64 reduction, which is enough to tell.

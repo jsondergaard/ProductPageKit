@@ -45,9 +45,6 @@ struct SimulatorWorker: CaptureDevice {
     let systemLocale: StoreLocale?
     /// What `simctl status_bar override --time` is given.
     let time: String
-    /// Whether the device draws the Dynamic Island, which a screenshot
-    /// composed without the display's mask shows black.
-    let drawsSensorBar: Bool
     /// How a foldable is opened flat after each boot, and photographed on
     /// its inner display. Nil for a device that does not fold.
     let unfolding: Unfolding?
@@ -110,8 +107,8 @@ struct SimulatorWorker: CaptureDevice {
     }
 
     func frames(for ready: Ready) async throws -> @Sendable () async throws -> Frame {
-        { [simulators, udid, drawsSensorBar, unfolding] in
-            try await simulators.screenshot(udid, display: unfolding?.display.screenID, masked: drawsSensorBar)
+        { [simulators, udid, unfolding] in
+            try await simulators.screenshot(udid, display: unfolding?.display.screenID)
         }
     }
 
