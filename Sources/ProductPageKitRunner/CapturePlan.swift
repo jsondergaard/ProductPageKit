@@ -74,16 +74,19 @@ public struct CapturePlan: Sendable {
         public let components: [Component]
         /// What is taken in the primary locale alone: the renders.
         public let primary: Renders?
-        /// The locales each worker captures, in turn. One worker on a Mac,
-        /// which captures the front window.
-        public let workers: [[StoreLocale]]
+        /// The locales captured, in the project's order.
+        public let locales: [StoreLocale]
+        /// Simulators at once, each taking the next locale left, the one that
+        /// shows the screens tests put up included. One on a Mac, which
+        /// captures the front window.
+        public let workers: Int
         public let reviewScreenshots: [ReviewScreenshot]
 
-        /// This target on `workers` alone: the locales that have something
-        /// left to capture.
-        func taking(_ workers: [[StoreLocale]]) -> Target {
-            Target(platform: platform, shots: shots, components: components, primary: primary, workers: workers,
-                   reviewScreenshots: reviewScreenshots)
+        /// This target on `locales` alone: the ones that have something left
+        /// to capture.
+        func taking(_ locales: [StoreLocale]) -> Target {
+            Target(platform: platform, shots: shots, components: components, primary: primary, locales: locales,
+                   workers: workers, reviewScreenshots: reviewScreenshots)
         }
 
         /// The scenes captured in `locale`.
@@ -128,15 +131,9 @@ public struct CapturePlan: Sendable {
             case .simulator: max(1, min(request.workers ?? machine.simulators, request.locales.count))
             }
             return Target(platform: platform, shots: shots, components: components, primary: primary,
-                          workers: Self.split(request.locales, into: workers), reviewScreenshots: reviews)
+                          locales: request.locales, workers: workers, reviewScreenshots: reviews)
         }
         guard !targets.isEmpty else { throw RunnerError.nothingToCapture }
-    }
-
-    /// Round robin, so each worker gets a share in the project's order.
-    static func split(_ locales: [StoreLocale], into workers: Int) -> [[StoreLocale]] {
-        (0..<workers).map { worker in locales.enumerated().filter { $0.offset % workers == worker }.map(\.element) }
-            .filter { !$0.isEmpty }
     }
 
     /// One launch of the app in a locale: the scenes it draws, then the
@@ -180,9 +177,9 @@ public struct CapturePlan: Sendable {
             case .simulator(.named(let name)): name
             case .window(let size): size.map { "a \(Int($0.width)) × \(Int($0.height)) window" } ?? "a window"
             }
-            let workers = target.workers.count == 1 ? "1 worker" : "\(target.workers.count) workers"
+            let workers = target.workers == 1 ? "1 worker" : "\(target.workers) workers"
             var lines = ["\(target.platform.name): \(place), \(workers)"]
-            for locale in target.workers.flatMap({ $0 }) {
+            for locale in target.locales {
                 lines.append("  \(locale.code): \(target.fileNames(in: locale).joined(separator: " "))")
             }
             if !target.components.isEmpty {

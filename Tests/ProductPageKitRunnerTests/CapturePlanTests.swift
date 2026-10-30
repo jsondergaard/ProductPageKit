@@ -37,15 +37,16 @@ struct DevicesFrames: FrameTheme {
         let example = project()
         let request = CaptureRequest(platforms: example.platforms, locales: example.locales)
         let plan = try CapturePlan(project: example, request: request, machine: Machine(cores: 12, memory: 64 << 30))
-        #expect(plan.targets[0].workers.map { $0.map(\.code) } == [["en", "fr"], ["da", "es"], ["de"]])
-        #expect(plan.targets[1].workers.map { $0.map(\.code) } == [["en", "da", "de", "fr", "es"]])
+        #expect(plan.targets[0].workers == 3)
+        #expect(plan.targets[1].workers == 1)
+        #expect(plan.targets[0].locales.map(\.code) == ["en", "da", "de", "fr", "es"])
 
         let few = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: Array(example.locales.prefix(2))), machine: Machine(cores: 32, memory: 64 << 30))
-        #expect(few.targets[0].workers.count == 2)
+        #expect(few.targets[0].workers == 2)
         let forced = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales, workers: 1), machine: Machine(cores: 32, memory: 64 << 30))
-        #expect(forced.targets[0].workers.count == 1)
+        #expect(forced.targets[0].workers == 1)
         let small = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), machine: Machine(cores: 2, memory: 64 << 30))
-        #expect(small.targets[0].workers.count == 1)
+        #expect(small.targets[0].workers == 1)
     }
 
     @Test func simulatorsGetSixGigabytesEachPastTheMacsOwnEight() throws {
@@ -56,13 +57,29 @@ struct DevicesFrames: FrameTheme {
         let example = project()
         let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales),
                                    machine: Machine(cores: 32, memory: 24 << 30))
-        #expect(plan.targets[0].workers.count == 2)
+        #expect(plan.targets[0].workers == 2)
     }
 
-    @Test func localesAreDealtRoundRobin() {
-        let locales = ["en", "da", "de", "fr", "es"].map { StoreLocale($0, store: $0) }
-        #expect(CapturePlan.split(locales, into: 3).map { $0.map(\.code) } == [["en", "fr"], ["da", "es"], ["de"]])
-        #expect(CapturePlan.split(Array(locales.prefix(1)), into: 3).map { $0.map(\.code) } == [["en"]])
+    /// Each simulator takes the next locale left, in the project's order,
+    /// so one that finishes early never waits on the others.
+    @Test func localesAreHandedOutOneAtATimeInOrder() async {
+        let locales = ["en", "da", "de"].map { StoreLocale($0, store: $0) }
+        let queue = LocaleQueue(locales)
+        let taken = await withTaskGroup(of: [String].self) { group in
+            for _ in 0..<3 {
+                group.addTask {
+                    var mine: [String] = []
+                    while let locale = await queue.next() { mine.append(locale.code) }
+                    return mine
+                }
+            }
+            return await group.reduce(into: []) { $0 += $1 }
+        }
+        #expect(taken.sorted() == ["da", "de", "en"])
+        #expect(await queue.next() == nil)
+        let ordered = LocaleQueue(locales)
+        #expect(await ordered.next()?.code == "en")
+        #expect(await ordered.next()?.code == "da")
     }
 
     @Test func filesAreNumberedInStoreOrder() throws {

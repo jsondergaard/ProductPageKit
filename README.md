@@ -239,8 +239,10 @@ comparison.
 
 - iPhone, iPad, iPhone Duo and Apple TV run on cloned simulators, one for
   every four cores and every 6 GB of memory past 8, at most one per locale,
-  with 9:41 in the status bar. Screens a test puts up take one of them, or a
-  clone of their own after the locales when a platform has one worker.
+  with 9:41 in the status bar. Each takes the next locale left, so none
+  waits on the others. Screens a test puts up take one of them first, which
+  a fresh clone then replaces for the locales, or a clone of their own after
+  the locales when a platform has one worker.
   Each runs on the newest runtime that has its device, and iPhone 6.9"
   never on a foldable. iPhone Duo's simulators boot folded, so each is
   opened flat after it boots, by the hinge event Device Hub's slider sends,

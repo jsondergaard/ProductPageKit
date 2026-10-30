@@ -204,6 +204,28 @@ struct CaptureTests {
         #expect(try await run(force: true).shots.count == 1)
     }
 
+    /// Two simulators: one shows the tests' screens, then a fresh clone in
+    /// its place takes whatever locales the other has not reached, so every
+    /// locale and every test-drawn screen is taken in one run.
+    @Test func theTestsSimulatorTakesLocalesOnceItsTestsAreDone() async throws {
+        let (session, console) = session
+        let report = try #require(try await Commands.captureScreenshots(session, platforms: "ios", locales: "", shots: "",
+                                                                          workers: 2, force: true, dryRun: false))
+        #expect(console.output.contains("iPhone 6.9\": 2 workers on"))
+        let names = ["01_list.png", "02_detail-blue.png", "03_settings.png"]
+        #expect(report.shots.map(\.lastPathComponent).sorted()
+                == (names + names + ["detail.png", "banner-blue.png", "banner-red.png"]).sorted())
+        #expect(report.reviewScreenshots.count == 1)
+        for locale in [Self.en, Self.da] {
+            for name in names {
+                #expect(!Self.isBlank(try Self.image(session.cache.raw(Self.project.platforms[0], locale).appending(path: name))))
+            }
+        }
+        // Every clone is deleted once its part is done.
+        #expect(try await Simulators().abandonedWorkers().isEmpty)
+        #expect(try await Simulators().devices().map(\.device).filter { $0.name.contains("worker \(getpid())-") }.isEmpty)
+    }
+
     /// A capture of one flat colour stops the run and is neither stored nor
     /// recorded as taken, so the next run takes it again.
     @Test func aBlankCaptureIsNotKept() async throws {
