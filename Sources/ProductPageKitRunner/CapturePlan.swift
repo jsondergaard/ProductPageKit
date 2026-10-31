@@ -128,9 +128,12 @@ public struct CapturePlan: Sendable {
             let primary = request.shots == nil && request.locales.contains(project.primaryLocale)
                 && !(renders.shots.isEmpty && renders.components.isEmpty && renders.tests.isEmpty) ? renders : nil
             guard !shots.isEmpty || !components.isEmpty || primary != nil else { return nil }
+            // One simulator for each locale, and one for the screens tests
+            // put up, which then joins the locales.
+            let testing = !reviews.isEmpty || !(primary?.tests.isEmpty ?? true)
             let workers: Int = switch platform.capture {
             case .window: 1
-            case .simulator: max(1, min(request.workers ?? machine.simulators, request.locales.count))
+            case .simulator: max(1, min(request.workers ?? machine.simulators, request.locales.count + (testing ? 1 : 0)))
             }
             return Target(platform: platform, shots: shots, components: components, primary: primary,
                           locales: request.locales, workers: workers, reviewScreenshots: reviews)

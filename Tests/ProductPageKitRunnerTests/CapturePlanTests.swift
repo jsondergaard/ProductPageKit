@@ -33,7 +33,9 @@ struct DevicesFrames: FrameTheme {
 }
 
 @Suite struct CapturePlanTests {
-    @Test func simulatorsGetOneWorkerForEveryFourCoresAndNoMoreThanLocales() throws {
+    /// One for each locale, and one for the tests' screens, up to one for
+    /// every four cores.
+    @Test func simulatorsGetOneWorkerForEveryFourCoresAndNoMoreThanLocalesAndTheTests() throws {
         let example = project()
         let request = CaptureRequest(platforms: example.platforms, locales: example.locales)
         let plan = try CapturePlan(project: example, request: request, machine: Machine(cores: 12, memory: 64 << 30))
@@ -42,7 +44,7 @@ struct DevicesFrames: FrameTheme {
         #expect(plan.targets[0].locales.map(\.code) == ["en", "da", "de", "fr", "es"])
 
         let few = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: Array(example.locales.prefix(2))), machine: Machine(cores: 32, memory: 64 << 30))
-        #expect(few.targets[0].workers == 2)
+        #expect(few.targets[0].workers == 3)
         let forced = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales, workers: 1), machine: Machine(cores: 32, memory: 64 << 30))
         #expect(forced.targets[0].workers == 1)
         let small = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), machine: Machine(cores: 2, memory: 64 << 30))
@@ -205,7 +207,7 @@ struct DevicesFrames: FrameTheme {
         let example = project(locales: ["en"])
         let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), machine: Machine(cores: 8, memory: 64 << 30))
         #expect(plan.lines == [
-            "iPhone 6.9\": the largest iPhone simulator, 1 worker",
+            "iPhone 6.9\": the largest iPhone simulator, 2 workers",
             "  en: 01_inbox.png 02_library-pro.png 03_quiet.png",
             "  App Review screenshot of the in-app purchases, from ExampleTests/Review/capture()",
             "Mac: a 1280 × 800 window, 1 worker",
@@ -218,6 +220,6 @@ struct DevicesFrames: FrameTheme {
         var example = project(locales: ["en"])
         example.platforms = [.iPhoneDuo(shots: ["inbox"])]
         let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales), machine: Machine(cores: 8, memory: 64 << 30))
-        #expect(plan.lines.first == "iPhone Duo: the largest foldable iPhone simulator, 1 worker")
+        #expect(plan.lines.first == "iPhone Duo: the largest foldable iPhone simulator, 2 workers")
     }
 }
