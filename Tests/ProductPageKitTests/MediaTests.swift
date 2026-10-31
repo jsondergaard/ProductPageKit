@@ -242,6 +242,22 @@ import ProductPageKitTestSupport
         #expect(try again.files(in: again.cache.framed) == after.screenshots.map(\.url.lastPathComponent).sorted())
     }
 
+    /// A layout the theme reads from a file redraws its shot when it
+    /// changes, though the executable is the same.
+    @Test func aLayoutChangeRedrawsItsShotOnly() async throws {
+        let fixture = try Fixture(themes: .frames)
+        try fixture.writeCaptures()
+        let before = try await frame(fixture)
+
+        let again = try fixture.again()
+        again.project.frames = SampleFrames(layouts: ["list": "moved"])
+        let after = try await frame(again)
+        #expect(again.console.output.contains("Framed 2 screenshots; 4 were already framed."))
+        let changed = zip(before.screenshots, after.screenshots).filter { $0.url.lastPathComponent != $1.url.lastPathComponent }
+            .map { "\($1.platform.id) \($1.locale.code) \($1.name)" }
+        #expect(changed == ["ios en 02_list.png", "ios da 02_list.png"])
+    }
+
     @Test func anUntranslatedLineShowsTheSourceWithAWarning() async throws {
         let fixture = try Fixture(themes: .frames)
         try fixture.writeCaptures()

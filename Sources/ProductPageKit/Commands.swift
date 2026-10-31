@@ -331,7 +331,7 @@ struct ProductsCommand: AsyncParsableCommand {
 
 struct ScreenshotsCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "screenshots", abstract: "App Store screenshots.",
-                                                    subcommands: [Capture.self, Frame.self, Push.self])
+                                                    subcommands: [Capture.self, Frame.self, Edit.self, Push.self])
 
     struct Capture: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
@@ -366,6 +366,13 @@ struct ScreenshotsCommand: AsyncParsableCommand {
             try await Commands.frameScreenshots(session, platforms: try session.platforms(platforms.platforms),
                                                 locales: try session.locales(locales.locales))
         }
+    }
+
+    struct Edit: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "Edit the frames' layouts in the browser, in the theme's editor.")
+        @Flag(help: "Print the address without opening the browser.") var noOpen = false
+
+        func run() async throws { try await Commands.editFrames(try Session.get(), open: !noOpen) }
     }
 
     struct Push: AsyncParsableCommand {

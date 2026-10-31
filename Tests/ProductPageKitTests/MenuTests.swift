@@ -166,7 +166,7 @@ final class ScriptedTerminal: MenuTerminal {
 
     @Test func everyCommandCanBeRunFromTheMenu() {
         let commands = Self.leaves(of: Root.self, in: nil)
-        #expect(commands.count == 21)
+        #expect(commands.count == 22)
         for (path, command) in commands { #expect(command is any Guided.Type, "\(path) has no questions for the menu") }
     }
 
@@ -176,7 +176,7 @@ final class ScriptedTerminal: MenuTerminal {
     @Test func everyCommandAnsweredWithItsDefaultsParsesAsItself() throws {
         let project = try Self.fixture().project
         let commands = Self.leaves(of: Root.self, in: project)
-        #expect(commands.count == 21)
+        #expect(commands.count == 22)
         for (path, command) in commands {
             let terminal = ScriptedTerminal()
             terminal.respond = { screen in

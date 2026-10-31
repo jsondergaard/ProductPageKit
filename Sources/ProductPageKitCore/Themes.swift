@@ -5,8 +5,9 @@ public import ProductPageKitFrames
 /// How an app's screenshots are framed: the ground, the caption and the
 /// device around each capture. Each app implements one in its tools package.
 ///
-/// A frame is redrawn when what it is drawn from, its caption or the tools
-/// executable changes, so a theme needs no version of its own.
+/// A frame is redrawn when what it is drawn from, its caption, the tools
+/// executable or its `layoutKey(for:)` changes, so a theme needs no version
+/// of its own.
 public protocol FrameTheme: Sendable {
     /// What `frame` is drawn from. The shot's own capture unless a theme
     /// composes it from others: captures from any platform, components the
@@ -19,6 +20,13 @@ public protocol FrameTheme: Sendable {
     func canvasSize(for platform: Platform.Kind) -> CGSize
     /// Draws `shot` on `canvas`, which is `canvasSize(for:)` its platform.
     func render(_ shot: FramedShot, on canvas: Canvas) throws
+    /// What `frame`'s drawing depends on that is not compiled into the tools
+    /// executable, such as a layout the theme reads from a file. Empty unless
+    /// a theme has such a thing.
+    func layoutKey(for frame: FrameSubject) -> String
+    /// The page `productpage screenshots edit` serves for editing the
+    /// theme's layouts. Nil unless a theme has one.
+    var editor: (any FrameEditor)? { get }
 }
 
 extension FrameTheme {
@@ -29,6 +37,10 @@ extension FrameTheme {
     public func canvasSize(for platform: Platform.Kind) -> CGSize {
         platform.screenshotSize
     }
+
+    public func layoutKey(for frame: FrameSubject) -> String { "" }
+
+    public var editor: (any FrameEditor)? { nil }
 }
 
 /// A screenshot a theme frames: a shot in a platform's list, in a custom

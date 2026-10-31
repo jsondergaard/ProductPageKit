@@ -184,6 +184,7 @@ Outside a terminal, no arguments prints the help.
 | --- | --- |
 | `screenshots capture` | Builds the app and captures every platform's shots in every locale, and the App Review screenshots, into the cache. |
 | `screenshots frame` | Frames the captures with the project's theme, into the cache. |
+| `screenshots edit` | Serves the theme's layout editor on 127.0.0.1 and opens it in the browser. |
 | `screenshots push` | Frames, then makes each screenshot set hold exactly the framed screenshots, uploading only files App Store Connect does not have. |
 | `videos render` | Renders the header and search result videos from the captures, into the cache. |
 | `videos push` | Renders, then uploads changed videos, waits for processing and places them on the editable iOS version. |
@@ -362,9 +363,17 @@ takes exactly what the frames and videos list. A `FrameSubject` and a
 shots differently from the store's.
 
 Frames are cached under a hash of everything drawn into them: the capture,
-its highlights, the caption and the tools executable. Editing a caption
-redraws that frame only, editing a theme redraws them all, and framing an
-unchanged set takes no time. Without a theme, the captures are uploaded as
+its highlights, the caption, the tools executable and the theme's
+`layoutKey(for:)`. Editing a caption redraws that frame only, editing a theme
+redraws them all, and framing an unchanged set takes no time. A theme that
+reads its layouts from files returns each frame's layout as its key, so
+editing one file redraws the frames it lays out.
+
+A theme can give `editor` a `FrameEditor`: a page in the browser that
+`productpage screenshots edit` serves, with each request it makes answered
+by the editor. Its `FrameStudio` reads any frame's sources and caption as the
+framer does, from sources the editor names, so the page can show a layout
+drawn by the theme before it is saved. Without a theme, the captures are uploaded as
 they are and must be a size App Store Connect takes.
 
 ## Videos

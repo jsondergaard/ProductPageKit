@@ -8,6 +8,14 @@ import Foundation
 /// also has the blue basket component laid over its corner.
 struct SampleFrames: FrameTheme {
     static let basket = Component("basket", variant: "blue")
+    /// Each shot's layout as if read from a file, by its name.
+    var layouts: [String: String] = [:]
+
+    func layoutKey(for frame: FrameSubject) -> String {
+        layouts[frame.shot.name] ?? ""
+    }
+
+    var editor: (any FrameEditor)? { SampleEditor() }
 
     func sources(for frame: FrameSubject) -> [FrameSource] {
         let own = FrameSource.capture(frame.shot, on: frame.platform)
@@ -66,6 +74,26 @@ struct SampleFrames: FrameTheme {
                 .draw(subline, style: TextStyle(size: size * 0.4, color: .hex(0xFFFFFF, alpha: 0.7)), in: context))
         }
         return covered
+    }
+}
+
+/// Answers `/` with a page, `/caption` with a frame's headline as the studio
+/// reads it, and `/capture` with the capture's file.
+struct SampleEditor: FrameEditor {
+    func respond(to request: EditorRequest, studio: any FrameStudio) async throws -> EditorResponse {
+        let subject = FrameSubject(Shot(request.query["shot"] ?? "home"), on: .iPhone)
+        let locale = studio.project.primaryLocale
+        switch request.route {
+        case "/":
+            return .html(Data("<h1>Layouts</h1>".utf8))
+        case "/caption":
+            let shot = try await studio.shot(subject, locale: locale, sources: [.capture(subject.shot, on: .iPhone)])
+            return try .json(["headline": shot.caption.headline, "position": "\(shot.position)"])
+        case "/capture":
+            return EditorResponse(contentType: "image/png", body: .file(try await studio.url(of: .capture(subject.shot, on: .iPhone), locale: locale)))
+        default:
+            throw Stopped(description: "no such request")
+        }
     }
 }
 

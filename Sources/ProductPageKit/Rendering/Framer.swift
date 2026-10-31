@@ -62,9 +62,22 @@ struct Framer {
     }
 
     /// Where a source is in the cache.
-    private enum Found: Sendable {
+    enum Found: Sendable {
         case image(URL, highlights: Data?)
         case file(URL)
+
+        var url: URL {
+            switch self {
+            case .image(let url, _), .file(let url): url
+            }
+        }
+
+        /// An image and its highlights, read.
+        func read() throws -> (image: CGImage, highlights: [CGRect])? {
+            guard case .image(let url, let marks) = self else { return nil }
+            return (try CGImage.read(try Data(contentsOf: url), from: url),
+                    try marks.map { try JSONDecoder().decode(Highlights.self, from: $0).rects } ?? [])
+        }
     }
 
     /// Frames every listed shot of `platforms` in `locales`, in the lists
@@ -97,8 +110,9 @@ struct Framer {
                 var key = RenderKey("framed")
                 key.add(project.output.identifier)
                 var found: [FrameSource: Found] = [:]
+                let files = fileDigests.mapValues(\.0)
                 for source in project.sources(for: subject) {
-                    switch find(source, locale: locale, files: fileDigests) {
+                    switch find(source, locale: locale, files: files) {
                     case .success(let place):
                         found[source] = place
                         key.add(source.description)
@@ -115,11 +129,12 @@ struct Framer {
                     }
                 }
                 var caption: Caption?
-                if project.frames != nil {
+                if let theme = project.frames {
                     switch captions.caption(listing.captionSubject(subject.shot), locale: locale) {
                     case .success(let read):
                         caption = read
-                        for part in [subject.platform.rawValue, subject.list.folder ?? "", "\(position)", "\(listing.shots.count)", locale.code] {
+                        for part in [subject.platform.rawValue, subject.list.folder ?? "", "\(position)", "\(listing.shots.count)", locale.code,
+                                     theme.layoutKey(for: subject)] {
                             key.add(part)
                         }
                         key.add(read)
@@ -176,7 +191,9 @@ struct Framer {
         SHA256.hash(data: try Data(contentsOf: url, options: .mappedIfSafe)).hex
     }
 
-    private func find(_ source: FrameSource, locale: StoreLocale, files: [String: (URL, String)]) -> Result<Found, Problem> {
+    /// Where `source` is in `locale`, `files` being where each prepared
+    /// file is.
+    func find(_ source: FrameSource, locale: StoreLocale, files: [String: URL]) -> Result<Found, Problem> {
         let locale = source.isInPrimaryLocale ? project.primaryLocale : locale
         switch source.content {
         case .capture(let shot, let kind):
@@ -192,12 +209,12 @@ struct Framer {
             }
             return .success(.image(url, highlights: nil))
         case .file(let name):
-            guard let (url, _) = files[name] else { return .failure(Problem("no file \(name)")) }
+            guard let url = files[name] else { return .failure(Problem("no file \(name)")) }
             return .success(.file(url))
         }
     }
 
-    private struct Problem: Error, CustomStringConvertible {
+    struct Problem: Error, CustomStringConvertible {
         let description: String
         init(_ description: String) { self.description = description }
     }
@@ -209,12 +226,11 @@ struct Framer {
             var highlights: [FrameSource: [CGRect]] = [:]
             var files: [String: URL] = [:]
             for (source, place) in job.sources {
-                switch place {
-                case .image(let url, let marks):
-                    images[source] = try CGImage.read(try Data(contentsOf: url), from: url)
-                    highlights[source] = try marks.map { try JSONDecoder().decode(Highlights.self, from: $0).rects } ?? []
-                case .file(let url):
-                    if case .file(let name) = source.content { files[name] = url }
+                if let (image, marks) = try place.read() {
+                    images[source] = image
+                    highlights[source] = marks
+                } else if case .file(let name) = source.content {
+                    files[name] = place.url
                 }
             }
             let shot = FramedShot(shot: subject.shot, list: subject.list, position: job.position, count: job.count,

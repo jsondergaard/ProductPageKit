@@ -135,6 +135,10 @@ extension ScreenshotsCommand.Frame: Guided {
     }
 }
 
+extension ScreenshotsCommand.Edit: Guided {
+    static func isAvailable(in project: Project) -> Bool { project.frames?.editor != nil }
+}
+
 extension ScreenshotsCommand.Push: Guided {
     static func isAvailable(in project: Project) -> Bool { project.frames != nil }
     static func arguments(_ ask: Prompter, _ project: Project) throws(MenuExit) -> [String] {
