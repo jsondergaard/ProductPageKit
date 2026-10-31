@@ -50,6 +50,16 @@ import Testing
         try Frame(image: image(marked: 5000, width: 60)).check("player in en", on: .appleTV())
     }
 
+    /// A scene the app never reached shows the screen before it: the same
+    /// picture, or one whose clock moved on, and never another screen.
+    @Test func aFrameShowsTheSameScreenAsItsCopy() throws {
+        let screen = try Frame(image: image(marked: 5000))
+        #expect(screen.showsSameScreen(as: try Frame(image: image(marked: 5000))))
+        #expect(screen.showsSameScreen(as: try Frame(image: image(marked: 5001))))
+        #expect(!screen.showsSameScreen(as: try Frame(image: image(marked: 2000))))
+        #expect(!screen.showsSameScreen(as: try Frame(image: image(marked: 5000, width: 101))))
+    }
+
     @Test func framesMatchWithinTheTolerance() {
         let stability = FrameStability(tolerance: 0.001)
         #expect(stability.matches(image(), image()))

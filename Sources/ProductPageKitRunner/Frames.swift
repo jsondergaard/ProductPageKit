@@ -50,6 +50,13 @@ struct Frame: @unchecked Sendable {
         guard showsContent else { throw RunnerError.blankCapture(what, platform: platform.name) }
     }
 
+    /// Whether `other` shows the same screen, by the measure `FrameStability`
+    /// takes two frames of one scene to match: a clock that moved on between
+    /// runs does not tell two screens apart.
+    func showsSameScreen(as other: Frame) -> Bool {
+        png == other.png || FrameStability().matches(image, other.image)
+    }
+
     /// Fractions of the frame, as the app reports them, in its pixels.
     func highlights(_ fractions: [CGRect]) -> Highlights {
         let width = CGFloat(image.width), height = CGFloat(image.height)

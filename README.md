@@ -278,6 +278,10 @@ comparison.
   simulator nor launches the app. A status bar that shows the time of the
   run keeps the time of the run that took each capture. `--force` takes
   everything again.
+- A capture of one flat colour, or one that shows the same screen as
+  another scene's capture in its locale, stops the run and is not kept, so
+  the next run takes it again. The second is an app that never reached the
+  scene, still showing the one before. Variants of one scene may match.
 - `-ProductPageScene <name>` opens the app on a scene without a runner, which
   is how UI tests reach a fixture.
 

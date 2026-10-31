@@ -24,6 +24,7 @@ public enum RunnerError: Error, CustomStringConvertible {
     case unreadableCapture
     case servicesNotSlimmed(String, missing: Int)
     case blankCapture(String, platform: String)
+    case sameScreen(String, as: String, platform: String)
     case unstable(String, frames: Int, evidence: URL?)
     case testDidNotConnect(String, log: URL)
     case componentFailed(String, String)
@@ -81,6 +82,8 @@ public enum RunnerError: Error, CustomStringConvertible {
             "Simulator \(udid) booted with \(missing) background services the run turns off still on, so each simulator takes several times the memory planned for. Run with --workers 1."
         case .blankCapture(let what, let platform):
             "\(what) on \(platform) came out one flat colour: the display was off or drew nothing. It was not kept."
+        case .sameScreen(let what, let other, let platform):
+            "\(what) on \(platform) shows the same screen as \(other): the app did not reach the scene and photographed the one before it, still up. It was not kept."
         case .unstable(let what, let frames, let evidence):
             "\(what) was still changing after \(frames) frames. Hold `.captureReady` false until it settles, or mark what moves on purpose `.captureMoving()`."
                 + (evidence.map { " What changed between the last two frames is in red in \($0.path)." } ?? "")

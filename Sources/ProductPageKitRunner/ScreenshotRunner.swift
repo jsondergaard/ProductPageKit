@@ -376,6 +376,7 @@ public struct ScreenshotRunner: Sendable {
                                                                           capture: try await device.frames(for: ready))
                     }
                     try frame.check("\(shot) in \(locale.code)", on: target.platform)
+                    try checkDistinct(frame, of: shot, in: target, locale: locale, ledger: ledger)
                     let file = cache.capture(target.platform, locale, shot)
                     try frame.png.write(to: file, options: .atomic)
                     try highlights.write(for: file)
@@ -396,6 +397,22 @@ public struct ScreenshotRunner: Sendable {
         }
         if await !session.quit() { await device.end(pid) }
         return report
+    }
+
+    /// Throws when `frame` shows the screen a current capture of another
+    /// scene in `locale` shows: a scene the app never reached photographs
+    /// whatever the scene before it left up. Variants of one scene may look
+    /// alike. Checked before the capture is stored, so the next run takes it
+    /// again.
+    private func checkDistinct(_ frame: Frame, of shot: Shot, in target: CapturePlan.Target, locale: StoreLocale,
+                               ledger: CaptureLedger) throws {
+        for other in target.shots(in: locale) where other.scene != shot.scene {
+            let file = cache.capture(target.platform, locale, other)
+            guard ledger.isCurrent(CaptureLedger.shotKey(file.lastPathComponent), files: [file]) else { continue }
+            if frame.showsSameScreen(as: try Frame(png: Data(contentsOf: file))) {
+                throw RunnerError.sameScreen("\(shot) in \(locale.code)", as: other.description, platform: target.platform.name)
+            }
+        }
     }
 
     static let testsScope = "tests"
