@@ -15,9 +15,11 @@ public protocol CaptureScene: RawRepresentable<String>, CaseIterable, Hashable, 
     /// draw it from a cold launch, for instance because it picks a window
     /// scene at launch.
     var launchPolicy: CaptureLaunchPolicy { get }
-    /// How the runner reaches another variant. In process unless the app
-    /// decides its data from the variant at launch, in which case each
-    /// variant's scenes and components are drawn from a launch of its own.
+    /// How the runner reaches another variant. Either way each variant's
+    /// scenes and components are drawn together: in the running app, which
+    /// switches its data when a scene asks for another variant, unless the
+    /// app can only decide its data at launch, in which case each variant
+    /// gets a launch of its own.
     static var variantPolicy: CaptureLaunchPolicy { get }
 }
 

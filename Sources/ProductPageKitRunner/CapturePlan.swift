@@ -42,9 +42,11 @@ public struct Machine: Sendable {
         Machine(cores: ProcessInfo.processInfo.activeProcessorCount, memory: ProcessInfo.processInfo.physicalMemory)
     }
 
-    /// What one booted worker takes: about 90 processes once `SlimServices`
-    /// are off, under 3 GB.
-    static let simulatorMemory: UInt64 = 3 << 30
+    /// What one booted worker takes with an app running in it: about 100
+    /// processes once `SlimServices` are off, 3 to 4 GB. Past one for every
+    /// four cores a capture is held by the CPU, not by memory: a fourth on a
+    /// 15-core Mac took longer than three.
+    static let simulatorMemory: UInt64 = 4 << 30
     /// What the Mac keeps for itself and a build beside the simulators.
     static let reservedMemory: UInt64 = 8 << 30
 
@@ -136,28 +138,31 @@ public struct CapturePlan: Sendable {
         guard !targets.isEmpty else { throw RunnerError.nothingToCapture }
     }
 
-    /// One launch of the app in a locale: the scenes it draws, then the
-    /// components it exports, all in one variant when the app decides its
-    /// data from the variant at launch.
+    /// One variant's scenes, then the components it exports, in a launch of
+    /// its own or in the app the step before left running.
     struct Launch: Equatable {
         var variant: String?
         var shots: [Shot]
         var components: [Component]
+        /// Started fresh rather than continuing the app already running.
+        var opensApp: Bool
     }
 
-    /// The launches one locale takes. The shots and components drawn in
-    /// process share one, or one per variant when `variantsRelaunch`; each
-    /// scene that needs a cold launch gets its own. The launch holding the
-    /// first shot comes first, so the first launch can name that shot before
-    /// the app's `hello` has said which scenes relaunch.
+    /// The steps one locale takes. Each variant's shots and components go
+    /// together, so an app that switches its data with the variant switches
+    /// as seldom as it can. Each variant opens the app afresh when
+    /// `variantsRelaunch`, and each scene that needs a cold launch gets one
+    /// of its own; everything else continues the app running. The step
+    /// holding the first shot comes first, so the first launch can name that
+    /// shot before the app's `hello` has said which scenes relaunch.
     static func launches(_ shots: [Shot], components: [Component], relaunching: Set<String>,
                          variantsRelaunch: Bool) -> [Launch] {
-        var launches = shots.filter { relaunching.contains($0.scene) }.map { Launch(variant: $0.variant, shots: [$0], components: []) }
+        var launches = shots.filter { relaunching.contains($0.scene) }
+            .map { Launch(variant: $0.variant, shots: [$0], components: [], opensApp: true) }
         var grouped: [Launch] = []
         func group(_ variant: String?) -> Int {
-            let key = variantsRelaunch ? variant : nil
-            if let index = grouped.firstIndex(where: { $0.variant == key }) { return index }
-            grouped.append(Launch(variant: key, shots: [], components: []))
+            if let index = grouped.firstIndex(where: { $0.variant == variant }) { return index }
+            grouped.append(Launch(variant: variant, shots: [], components: [], opensApp: variantsRelaunch))
             return grouped.count - 1
         }
         for shot in shots where !relaunching.contains(shot.scene) { grouped[group(shot.variant)].shots.append(shot) }
@@ -166,6 +171,7 @@ public struct CapturePlan: Sendable {
         if let first = shots.first, let index = launches.firstIndex(where: { $0.shots.contains(first) }) {
             launches.insert(launches.remove(at: index), at: 0)
         }
+        if !launches.isEmpty { launches[0].opensApp = true }
         return launches
     }
 

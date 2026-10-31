@@ -360,10 +360,14 @@ public struct ScreenshotRunner: Sendable {
         let launches = CapturePlan.launches(shots, components: components, relaunching: relaunching,
                                             variantsRelaunch: first.session.hello.variantsRelaunch)
         var report = CaptureReport()
+        var (session, pid) = first
         for (index, planned) in launches.enumerated() {
-            let (session, pid) = index == 0 ? first : try await launch(target, locale: locale, scene: planned.shots.first?.scene,
-                                                                        variant: planned.variant ?? planned.shots.first?.variant,
-                                                                        device: device, listener: listener)
+            if index > 0, planned.opensApp {
+                if await !session.quit() { await device.end(pid) }
+                (session, pid) = try await launch(target, locale: locale, scene: planned.shots.first?.scene,
+                                                  variant: planned.variant ?? planned.shots.first?.variant,
+                                                  device: device, listener: listener)
+            }
             do {
                 for shot in planned.shots {
                     let (frame, highlights) = try await session.photograph(SceneRequest(scene: shot.scene, variant: shot.variant)) { ready in
@@ -389,8 +393,8 @@ public struct ScreenshotRunner: Sendable {
                 await device.end(pid)
                 throw device.diagnose(error)
             }
-            if await !session.quit() { await device.end(pid) }
         }
+        if await !session.quit() { await device.end(pid) }
         return report
     }
 

@@ -6,7 +6,7 @@ import Foundation
 /// connectivity, telemetry and other daemons no app's own screens draw on. A
 /// stock iOS 27 simulator runs about 300 processes and, with the runtime's
 /// shared cache mapped privately into each, takes 14 GB; without these it
-/// runs about 90 and takes under 3 GB.
+/// runs about 100 with an app open.
 ///
 /// The labels are SimSlim's (https://github.com/MobAI-App/simslim, MIT,
 /// copyright 2026 Interlap), less those an app's screens can need: StoreKit
@@ -68,6 +68,16 @@ enum SlimServices {
         "com.apple.financed", "com.apple.passd", "com.apple.merchantd", "com.apple.coreidvd", "com.apple.businessservicesd",
         "com.apple.deviceaccessd", "com.apple.replicatord", "com.apple.linkd", "com.apple.ind", "com.apple.storagedatad",
         "com.apple.StatusKitAgent", "com.apple.countryd", "com.apple.managedconfiguration.passcodenagd",
+        // Beyond SimSlim's, measured still running on an iOS 27.2 worker:
+        // the Apple Watch companions, Wallet, location history, Image
+        // Playground, Clock, Sleep, Biome, calendar and contact sync, Screen
+        // Time settings and device management. `nanoregistryd` stays: with
+        // it off, the companions hold the boot from ever finishing.
+        "com.apple.nanotimekitcompaniond", "com.apple.companionappd", "com.apple.brook.brookcompaniond",
+        "com.apple.nanoregistrylaunchd", "com.apple.nanoprefsyncd.2", "com.apple.NPKCompanionAgent",
+        "com.apple.routined", "com.apple.imageplaygroundd", "com.apple.mobiletimerd", "com.apple.sleepd", "com.apple.biomed",
+        "com.apple.biomesyncd", "com.apple.eventkitsyncd", "com.apple.addressbooksyncd", "com.apple.cmfsyncagent",
+        "com.apple.ManagedSettingsAgent", "com.apple.dmd",
     ]
 
     /// Where `launchd_sim`, a host process, keeps a device's disable

@@ -153,6 +153,9 @@ struct Simulators: Sendable {
 
     /// A worker's device, cloned from `base` and named for this process so a
     /// later run can tell an abandoned one from another run's.
+    /// Five times what a fresh clone takes on a busy Mac.
+    static let bootTimeout: Duration = .seconds(300)
+
     /// A worker cloned from `base`, set to boot without `SlimServices`.
     func clone(_ base: String, worker: Int) async throws -> String {
         let name = "\(Self.prefix) worker \(getpid())-\(worker)"
@@ -180,7 +183,16 @@ struct Simulators: Sendable {
     /// `SlimServices`. A runtime that ignored them would run each worker at
     /// several times the memory the run planned for, so that stops the run.
     func boot(_ udid: String) async throws {
-        _ = try await simctl(["bootstatus", udid, "-b"])
+        // A service the system waits on, turned off, holds the boot forever.
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { _ = try await simctl(["bootstatus", udid, "-b"]) }
+            group.addTask {
+                try await Task.sleep(for: Self.bootTimeout)
+                throw RunnerError.timedOut("simulator \(udid) to finish booting")
+            }
+            try await group.next()
+            group.cancelAll()
+        }
         let disabled = String(decoding: try await simctl(["spawn", udid, "launchctl", "print-disabled", "system"]), as: UTF8.self)
         let missing = SlimServices.missing(in: disabled)
         guard missing.isEmpty else { throw RunnerError.servicesNotSlimmed(udid, missing: missing.count) }

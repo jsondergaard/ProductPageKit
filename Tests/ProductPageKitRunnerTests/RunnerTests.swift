@@ -979,10 +979,10 @@ import Testing
         #expect(entries.count == SlimServices.disabled.count + 1)
     }
 
-    /// What an app's screens can need stays on.
-    @Test func storeKitICloudAndAssetsStayOn() {
+    /// What an app's screens can need, and what the boot waits on, stays on.
+    @Test func whatScreensNeedAndTheBootWaitsOnStaysOn() {
         for label in ["com.apple.storekitd", "com.apple.itunesstored", "com.apple.cloudd", "com.apple.mobileassetd",
-                      "com.apple.assistantd", "com.apple.gamed", "com.apple.sharingd"] {
+                      "com.apple.assistantd", "com.apple.gamed", "com.apple.sharingd", "com.apple.nanoregistryd"] {
             #expect(!SlimServices.disabled.contains(label), "\(label)")
         }
         #expect(Set(SlimServices.disabled).count == SlimServices.disabled.count)

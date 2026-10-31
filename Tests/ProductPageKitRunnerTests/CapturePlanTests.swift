@@ -49,7 +49,7 @@ struct DevicesFrames: FrameTheme {
         #expect(small.targets[0].workers == 1)
     }
 
-    @Test func simulatorsGetThreeGigabytesEachPastTheMacsOwnEight() throws {
+    @Test func simulatorsGetFourGigabytesEachPastTheMacsOwnEight() throws {
         #expect(Machine(cores: 15, memory: 24 << 30).simulators == 3)
         #expect(Machine(cores: 16, memory: 128 << 30).simulators == 4)
         #expect(Machine(cores: 32, memory: 16 << 30).simulators == 2)
@@ -57,7 +57,7 @@ struct DevicesFrames: FrameTheme {
         #expect(Machine(cores: 8, memory: 4 << 30).simulators == 1)
         let example = project()
         let plan = try CapturePlan(project: example, request: CaptureRequest(platforms: example.platforms, locales: example.locales),
-                                   machine: Machine(cores: 32, memory: 14 << 30))
+                                   machine: Machine(cores: 32, memory: 17 << 30))
         #expect(plan.targets[0].workers == 2)
     }
 
@@ -110,35 +110,38 @@ struct DevicesFrames: FrameTheme {
         }
     }
 
+    /// Each step's shots and components, a step that opens the app marked `+`.
     func launches(_ shots: [Shot], components: [Component] = [], relaunching: Set<String> = [],
                   variantsRelaunch: Bool = false) -> [[String]] {
         CapturePlan.launches(shots, components: components, relaunching: relaunching, variantsRelaunch: variantsRelaunch).map { launch in
-            launch.shots.map(\.name) + launch.components.map { "[\($0.fileName)]" }
+            (launch.opensApp ? ["+"] : []) + launch.shots.map(\.name) + launch.components.map { "[\($0.fileName)]" }
         }
     }
 
     @Test func inProcessShotsShareALaunchAndRelaunchingOnesGetTheirOwn() {
         let shots: [Shot] = ["inbox", "panel", "detail", "settings"]
-        #expect(launches(shots) == [["inbox", "panel", "detail", "settings"]])
-        #expect(launches(shots, relaunching: ["panel", "settings"]) == [["inbox", "detail"], ["panel"], ["settings"]])
+        #expect(launches(shots) == [["+", "inbox", "panel", "detail", "settings"]])
+        #expect(launches(shots, relaunching: ["panel", "settings"]) == [["+", "inbox", "detail"], ["+", "panel"], ["+", "settings"]])
         // The first launch is started before the app has said which scenes
-        // relaunch, so the group holding the first shot comes first.
-        #expect(launches(["panel", "inbox", "detail"], relaunching: ["panel"]) == [["panel"], ["inbox", "detail"]])
+        // relaunch, so the step holding the first shot comes first.
+        #expect(launches(["panel", "inbox", "detail"], relaunching: ["panel"]) == [["+", "panel"], ["inbox", "detail"]])
     }
 
-    /// An app that picks its data at launch draws each variant's scenes and
-    /// components from a launch of its own.
-    @Test func variantsTheAppDecidesAtLaunchGetALaunchEach() {
+    /// Each variant's scenes and components go together, so the app switches
+    /// its data as seldom as it can: in the running app, or from a launch of
+    /// their own when the app decides its data at launch.
+    @Test func eachVariantIsDrawnTogether() {
         let shots: [Shot] = ["home", Shot("library", variant: "pro"), "library", Shot("home", variant: "pro"), Shot("detail", variant: "smb")]
         let components: [Component] = ["sources", Component("sources", variant: "pro"), Component("sources", variant: "emby")]
         #expect(launches(shots, components: components) == [
-            ["home", "library-pro", "library", "home-pro", "detail-smb", "[sources]", "[sources-pro]", "[sources-emby]"],
+            ["+", "home", "library", "[sources]"], ["library-pro", "home-pro", "[sources-pro]"], ["detail-smb"], ["[sources-emby]"],
         ])
         #expect(launches(shots, components: components, variantsRelaunch: true) == [
-            ["home", "library", "[sources]"], ["library-pro", "home-pro", "[sources-pro]"], ["detail-smb"], ["[sources-emby]"],
+            ["+", "home", "library", "[sources]"], ["+", "library-pro", "home-pro", "[sources-pro]"], ["+", "detail-smb"], ["+", "[sources-emby]"],
         ])
-        #expect(launches([Shot("library", variant: "pro"), "home"], variantsRelaunch: true) == [["library-pro"], ["home"]])
-        #expect(launches([], components: ["value-list"]) == [["[value-list]"]])
+        #expect(launches([Shot("library", variant: "pro"), "home"], variantsRelaunch: true) == [["+", "library-pro"], ["+", "home"]])
+        #expect(launches([Shot("library", variant: "pro"), "home"]) == [["+", "library-pro"], ["home"]])
+        #expect(launches([], components: ["value-list"]) == [["+", "[value-list]"]])
     }
 
     /// A theme that composes its frames has captured what it draws, from any
