@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import ImageIO
+import ProductPageKitControl
 import ProductPageKitCore
 import UniformTypeIdentifiers
 
@@ -54,7 +55,7 @@ struct Frame: @unchecked Sendable {
     /// takes two frames of one scene to match: a clock that moved on between
     /// runs does not tell two screens apart.
     func showsSameScreen(as other: Frame) -> Bool {
-        png == other.png || FrameStability().matches(image, other.image)
+        png == other.png || PictureMatch().matches(image, other.image)
     }
 
     /// Fractions of the frame, as the app reports them, in its pixels.
@@ -71,11 +72,8 @@ struct Frame: @unchecked Sendable {
 /// catches a transition, a spinner or an image arriving late, at the cost of
 /// one or two frames when nothing moves.
 struct FrameStability {
-    /// The share of pixels that may differ between matching frames: a caret's
-    /// blink passes, a spinner does not.
-    var tolerance = 0.0002
-    /// A channel difference at or below this is the same colour.
-    var channelThreshold: UInt8 = 2
+    /// When two frames in a row match.
+    var match = PictureMatch()
     /// Frames to try before giving up on a scene that never settles.
     var maximumFrames = 40
     /// Where a scene that never settles leaves its last two frames and what
@@ -92,10 +90,10 @@ struct FrameStability {
         var previous = try await capture()
         for _ in 1..<maximumFrames {
             let frame = try await capture()
-            if frame.png == previous.png || matches(previous.image, frame.image, ignoring: moving) { return frame }
+            if frame.png == previous.png || match.matches(previous.image, frame.image, ignoring: moving) { return frame }
             if let remeasuring {
                 moving = try await remeasuring()
-                if matches(previous.image, frame.image, ignoring: moving) { return frame }
+                if match.matches(previous.image, frame.image, ignoring: moving) { return frame }
             }
             previous = frame
         }
@@ -112,7 +110,7 @@ struct FrameStability {
         try a.png.write(to: directory.appending(path: "\(stem)-1.png"))
         try b.png.write(to: directory.appending(path: "\(stem)-2.png"))
         if a.image.width == b.image.width, a.image.height == b.image.height,
-           let first = Self.pixels(a.image), var map = Self.pixels(b.image) {
+           let first = a.image.rgbaPixels, var map = b.image.rgbaPixels {
             let width = a.image.width, height = a.image.height
             let ignored = moving.map {
                 CGRect(x: $0.minX * CGFloat(width), y: $0.minY * CGFloat(height), width: $0.width * CGFloat(width),
@@ -121,7 +119,7 @@ struct FrameStability {
             for row in 0..<height {
                 for column in 0..<width {
                     let pixel = (row * width + column) * 4
-                    let changed = (0..<3).contains { first[pixel + $0].distance(to: map[pixel + $0]) > channelThreshold }
+                    let changed = (0..<3).contains { !match.sameColour(first[pixel + $0], map[pixel + $0]) }
                     let grey = UInt8((Int(map[pixel]) + Int(map[pixel + 1]) + Int(map[pixel + 2])) / 9)
                     let onPurpose = ignored.contains { $0.contains(CGPoint(x: column, y: row)) }
                     let (red, green, blue): (UInt8, UInt8, UInt8) = changed && !onPurpose ? (255, 0, 0) : onPurpose ? (grey, grey, 160) : (grey, grey, grey)
@@ -134,55 +132,6 @@ struct FrameStability {
         }
         return directory.appending(path: "\(stem)-changed.png")
     }
-
-    func matches(_ a: CGImage, _ b: CGImage, ignoring moving: [CGRect] = []) -> Bool {
-        guard a.width == b.width, a.height == b.height,
-              let first = Self.pixels(a), let second = Self.pixels(b)
-        else { return false }
-        let width = CGFloat(a.width), height = CGFloat(a.height)
-        let ignored = moving.map { CGRect(x: $0.minX * width, y: $0.minY * height, width: $0.width * width, height: $0.height * height).integral }
-        let allowed = Int(Double(a.width * a.height) * tolerance)
-        let rowBytes = a.width * 4
-        var differing = 0
-        first.withUnsafeBufferPointer { lhs in
-            second.withUnsafeBufferPointer { rhs in
-                for row in 0..<a.height {
-                    let start = row * rowBytes
-                    // Rows are compared whole first; only a row that differs
-                    // is looked at pixel by pixel.
-                    guard memcmp(lhs.baseAddress! + start, rhs.baseAddress! + start, rowBytes) != 0 else { continue }
-                    let skipped = ignored.filter { CGFloat(row) >= $0.minY && CGFloat(row) < $0.maxY }
-                    for pixel in stride(from: start, to: start + rowBytes, by: 4)
-                    where (0..<4).contains(where: { lhs[pixel + $0].distance(to: rhs[pixel + $0]) > channelThreshold }) {
-                        let column = CGFloat((pixel - start) / 4)
-                        if skipped.contains(where: { column >= $0.minX && column < $0.maxX }) { continue }
-                        differing += 1
-                        if differing > allowed { return }
-                    }
-                }
-            }
-        }
-        return differing <= allowed
-    }
-
-    /// RGBA, eight bits a channel, whatever the capture's own layout.
-    static func pixels(_ image: CGImage) -> [UInt8]? {
-        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
-        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(
-                data: buffer.baseAddress, width: image.width, height: image.height, bitsPerComponent: 8,
-                bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else { return false }
-            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-            return true
-        }
-        return drawn ? pixels : nil
-    }
-}
-
-private extension UInt8 {
-    func distance(to other: UInt8) -> UInt8 { self > other ? self - other : other - self }
 }
 
 /// A component shown over black and then over white, as a Mac app shows one
@@ -192,7 +141,7 @@ private extension UInt8 {
 enum Matte {
     static func transparent(black: CGImage, white: CGImage) -> CGImage? {
         guard black.width == white.width, black.height == white.height,
-              var dark = FrameStability.pixels(black), let light = FrameStability.pixels(white)
+              var dark = black.rgbaPixels, let light = white.rgbaPixels
         else { return nil }
         for index in stride(from: 0, to: dark.count, by: 4) {
             var through = 0
@@ -214,7 +163,7 @@ extension CGImage {
     static func trimmingTransparentEdges(_ images: [CGImage]) -> [CGImage] {
         var minX = Int.max, minY = Int.max, maxX = -1, maxY = -1
         for image in images {
-            guard let pixels = FrameStability.pixels(image) else { return images }
+            guard let pixels = image.rgbaPixels else { return images }
             for y in 0..<image.height {
                 let row = y * image.width * 4
                 for x in 0..<image.width where pixels[row + x * 4 + 3] > 0 {

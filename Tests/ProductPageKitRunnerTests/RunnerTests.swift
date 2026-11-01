@@ -3,36 +3,26 @@ import Foundation
 import Network
 import Synchronization
 import ProductPageKitControl
+import ProductPageKitTestSupport
 @testable import ProductPageKitCore
 import Testing
 @testable import ProductPageKitRunner
 
 @Suite struct FrameStabilityTests {
-    /// A 100 × 100 grey image with `marked` pixels painted `mark`, white
-    /// unless named, from the top left.
-    func image(marked: Int = 0, width: Int = 100, mark: [UInt8] = [255, 255, 255, 255]) -> CGImage {
-        var pixels = [UInt8](repeating: 128, count: width * 100 * 4)
-        for pixel in 0..<marked { pixels.replaceSubrange(pixel * 4..<pixel * 4 + 4, with: mark) }
-        let provider = CGDataProvider(data: Data(pixels) as CFData)!
-        return CGImage(width: width, height: 100, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
-                       space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
-    }
-
     /// A display that is off photographs black, and a frame of one flat
     /// colour shows nothing either.
     @Test func aFlatFrameShowsNothing() throws {
-        #expect(!(try Frame(image: image(marked: 100 * 100, mark: [0, 0, 0, 255]))).showsContent)
-        #expect(!(try Frame(image: image())).showsContent)
-        #expect(try Frame(image: image(marked: 5000)).showsContent)
+        #expect(!(try Frame(image: testImage(marked: 100 * 100, mark: [0, 0, 0, 255]))).showsContent)
+        #expect(!(try Frame(image: testImage())).showsContent)
+        #expect(try Frame(image: testImage(marked: 5000)).showsContent)
         // Lighter and darker than the first pixel both count.
-        #expect(try Frame(image: image(marked: 5000, mark: [0, 0, 0, 255])).showsContent)
-        #expect(try Frame(image: image(marked: 100 * 100 - 1, mark: [0, 0, 0, 255])).showsContent)
+        #expect(try Frame(image: testImage(marked: 5000, mark: [0, 0, 0, 255])).showsContent)
+        #expect(try Frame(image: testImage(marked: 100 * 100 - 1, mark: [0, 0, 0, 255])).showsContent)
     }
 
     /// A flat frame is never stored, whatever the platform.
     @Test func aFlatCaptureIsRefused() throws {
-        let flat = try Frame(image: image())
+        let flat = try Frame(image: testImage())
         for platform in [Platform.iPhone(), .appleTV(), .mac(window: CGSize(width: 100, height: 100))] {
             #expect {
                 try flat.check("home in en", on: platform)
@@ -46,39 +36,22 @@ import Testing
     /// A player turns an iPhone on its side; a frame of any shape with
     /// something drawn is kept.
     @Test func aCaptureOnItsSideIsKept() throws {
-        try Frame(image: image(marked: 5000, width: 150)).check("player in en", on: .iPhone())
-        try Frame(image: image(marked: 5000, width: 60)).check("player in en", on: .appleTV())
+        try Frame(image: testImage(marked: 5000, width: 150)).check("player in en", on: .iPhone())
+        try Frame(image: testImage(marked: 5000, width: 60)).check("player in en", on: .appleTV())
     }
 
     /// A scene the app never reached shows the screen before it: the same
     /// picture, or one whose clock moved on, and never another screen.
     @Test func aFrameShowsTheSameScreenAsItsCopy() throws {
-        let screen = try Frame(image: image(marked: 5000))
-        #expect(screen.showsSameScreen(as: try Frame(image: image(marked: 5000))))
-        #expect(screen.showsSameScreen(as: try Frame(image: image(marked: 5001))))
-        #expect(!screen.showsSameScreen(as: try Frame(image: image(marked: 2000))))
-        #expect(!screen.showsSameScreen(as: try Frame(image: image(marked: 5000, width: 101))))
-    }
-
-    @Test func framesMatchWithinTheTolerance() {
-        let stability = FrameStability(tolerance: 0.001)
-        #expect(stability.matches(image(), image()))
-        #expect(stability.matches(image(), image(marked: 10)))
-        #expect(!stability.matches(image(), image(marked: 11)))
-        #expect(!stability.matches(image(), image(width: 101)))
-    }
-
-    /// A video playing moves on purpose; the rest of the frame decides.
-    @Test func whatMovesOnPurposeIsLeftOut() {
-        let stability = FrameStability(tolerance: 0)
-        // The first 500 pixels are the top five rows.
-        #expect(!stability.matches(image(), image(marked: 500)))
-        #expect(stability.matches(image(), image(marked: 500), ignoring: [CGRect(x: 0, y: 0, width: 1, height: 0.05)]))
-        #expect(!stability.matches(image(), image(marked: 600), ignoring: [CGRect(x: 0, y: 0, width: 1, height: 0.05)]))
+        let screen = try Frame(image: testImage(marked: 5000))
+        #expect(screen.showsSameScreen(as: try Frame(image: testImage(marked: 5000))))
+        #expect(screen.showsSameScreen(as: try Frame(image: testImage(marked: 5001))))
+        #expect(!screen.showsSameScreen(as: try Frame(image: testImage(marked: 2000))))
+        #expect(!screen.showsSameScreen(as: try Frame(image: testImage(marked: 5000, width: 101))))
     }
 
     @Test func settlingStopsAtTheFirstTwoFramesThatMatch() async throws {
-        let frames = try [image(marked: 5000), image(marked: 3000), image(marked: 1000), image(marked: 1000), image()].map(Frame.init(image:))
+        let frames = try [testImage(marked: 5000), testImage(marked: 3000), testImage(marked: 1000), testImage(marked: 1000), testImage()].map(Frame.init(image:))
         var taken = 0
         let frame = try await FrameStability().settle("inbox") {
             defer { taken += 1 }
@@ -91,7 +64,7 @@ import Testing
     /// A view in a cover mounts after the app says ready, so where it moves is
     /// asked again once two frames differ.
     @Test func settlingAsksAgainWhereWhatMovesIsWhenFramesDiffer() async throws {
-        let frames = try [image(marked: 5000), image(marked: 3000)].map(Frame.init(image:))
+        let frames = try [testImage(marked: 5000), testImage(marked: 3000)].map(Frame.init(image:))
         var taken = 0, asked = 0
         let frame = try await FrameStability().settle("a video in en", remeasuring: {
             asked += 1
@@ -113,7 +86,7 @@ import Testing
         let error = await #expect(throws: RunnerError.self) {
             try await FrameStability(maximumFrames: 5, evidence: evidence).settle("a spinner in en") {
                 marked += 500
-                return try Frame(image: image(marked: marked))
+                return try Frame(image: testImage(marked: marked))
             }
         }
         #expect(marked == 3000)
@@ -372,7 +345,7 @@ import Testing
         #expect(session.hello == hello)
 
         let inbox = SceneRequest(scene: "inbox")
-        let frame = try Frame(image: FrameStabilityTests().image(width: 200))
+        let frame = try Frame(image: testImage(width: 200))
         async let photographed = session.photograph(inbox) { ready in
             #expect(ready.request == inbox)
             return frame
@@ -433,7 +406,7 @@ import Testing
         try app.send(.hello(Hello(pid: getpid(), bundleID: "com.example.app", platform: .tvOS, scenes: [], variantsRelaunch: true)))
         let fronts = Fronts()
         let session = try await AppSession(mailbox: mailbox, pid: getpid(), describedAs: "the fake app") { await fronts.add() }
-        let home = try Frame(image: FrameStabilityTests().image(marked: 1)), scene = try Frame(image: FrameStabilityTests().image(marked: 2))
+        let home = try Frame(image: testImage(marked: 1)), scene = try Frame(image: testImage(marked: 2))
         let photographs = Photographs([home, scene])
 
         let detail = SceneRequest(scene: "detail", variant: "blue")
@@ -475,7 +448,7 @@ import Testing
         let fronts = Fronts()
         let session = try await AppSession(mailbox: mailbox, pid: getpid(), describedAs: "the fake app") { await fronts.add() }
 
-        let frame = try Frame(image: FrameStabilityTests().image())
+        let frame = try Frame(image: testImage())
         let detail = SceneRequest(scene: "detail", variant: "blue")
         async let photographed = session.photograph(detail) { _ in frame }
         #expect(try await app.next() == .apply(detail))
@@ -513,7 +486,7 @@ import Testing
         let app = FakeApp(port: listener.port)
         try app.send(.hello(Hello(pid: getpid(), bundleID: "com.example.app", platform: .macOS, scenes: [], variantsRelaunch: true)))
         let session = try await AppSession(mailbox: mailbox, pid: getpid(), describedAs: "the fake app") {}
-        let tile = FrameStabilityTests().image(marked: 0)
+        let tile = testImage(marked: 0)
 
         let drawn = ComponentRequest(name: "sources")
         async let exported = session.export(drawn) { _ in throw RunnerError.componentWindowOffMac("sources") }
@@ -532,7 +505,7 @@ import Testing
         try app.send(.showing(ShownComponent(shown, window: window, backdrop: .white)))
         #expect(try await app.next() == .taken(shown))
         let image = try await matted
-        let pixels = try #require(FrameStability.pixels(image))
+        let pixels = try #require(image.rgbaPixels)
         // The backdrop shows through the first pixel, which is clear; the
         // second is red whatever is behind it.
         #expect(Array(pixels[0..<4]) == [0, 0, 0, 0])
@@ -596,7 +569,7 @@ import Testing
         let trimmed = CGImage.trimmingTransparentEdges([plain, selected])
         #expect(trimmed.map(\.width) == [4, 4])
         #expect(trimmed.map(\.height) == [2, 2])
-        let pixels = try #require(FrameStability.pixels(trimmed[0]))
+        let pixels = try #require(trimmed[0].rgbaPixels)
         #expect(pixels[3] == 0)
         #expect(pixels[4 + 3] == 255)
     }
@@ -607,7 +580,7 @@ import Testing
         let tall = Self.image(width: 3, height: 4, drawn: [(0, 0), (0, 3)])
         let trimmed = CGImage.trimmingTransparentEdges([short, tall])
         #expect(trimmed.map(\.height) == [4, 4])
-        let pixels = try #require(FrameStability.pixels(trimmed[0]))
+        let pixels = try #require(trimmed[0].rgbaPixels)
         #expect(pixels[3] == 255)
         #expect(pixels[3 * 4 + 3] == 0)
     }
@@ -634,7 +607,7 @@ import Testing
         let black = CGImage.rgba([64, 64, 64, 255], width: 1, height: 1)!
         let white = CGImage.rgba([191, 191, 191, 255], width: 1, height: 1)!
         let matted = try #require(Matte.transparent(black: black, white: white))
-        let pixel = try #require(FrameStability.pixels(matted))
+        let pixel = try #require(matted.rgbaPixels)
         #expect(pixel[3] == 128)
         #expect(pixel[0] == 64)
         #expect(Matte.transparent(black: black, white: CGImage.rgba([0, 0, 0, 255, 0, 0, 0, 255], width: 2, height: 1)!) == nil)

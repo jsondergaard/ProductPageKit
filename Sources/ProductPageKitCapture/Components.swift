@@ -146,6 +146,23 @@ final class ComponentExporter {
         throw ComponentError.notReady
     }
 
+    /// Draws until two drawings in a row show the same picture, and returns
+    /// the second. Glass re-samples its backdrop on every drawing, so its
+    /// edges are never byte for byte the same twice; `PictureMatch` takes
+    /// them as the same colour.
+    static func holdStill(for deadline: Duration = deadline, match: PictureMatch = PictureMatch(),
+                          draw: () throws -> CGImage) async throws -> CGImage {
+        let end = ContinuousClock.now + deadline
+        var previous: CGImage?
+        while ContinuousClock.now < end {
+            let drawing = try draw()
+            if let previous, match.matches(previous, drawing) { return drawing }
+            previous = drawing
+            try await Task.sleep(for: interval)
+        }
+        throw ComponentError.unstable
+    }
+
     /// How long a component may take to load, and to hold still.
     static let deadline: Duration = .seconds(30)
     /// Between looks: animations are off while a runner drives the app, so a
@@ -240,19 +257,12 @@ final class ComponentExporter {
         stage.addSubview(controller.view)
         try await settle(host) { Self.layOut(controller, on: stage, component: component) }
         let scale = max(window.screen.scale, component.scale ?? 0)
-        var previous: Data?
-        let deadline = ContinuousClock.now + Self.deadline
-        while ContinuousClock.now < deadline {
-            let png = try Self.draw(controller.view, scale: scale)
-            if png == previous {
-                send(.exported(ExportedComponent(request, png: png)))
-                return
-            }
-            previous = png
-            try await Task.sleep(for: Self.interval)
+        let drawing = try await Self.holdStill {
             Self.layOut(controller, on: stage, component: component)
+            return try Self.draw(controller.view, scale: scale)
         }
-        throw ComponentError.unstable
+        guard let png = UIImage(cgImage: drawing, scale: scale, orientation: .up).pngData() else { throw ComponentError.empty }
+        send(.exported(ExportedComponent(request, png: png)))
     }
 
     private static func layOut(_ controller: UIHostingController<AnyView>, on stage: UIView, component: CaptureComponent) {
@@ -277,7 +287,7 @@ final class ComponentExporter {
         controller.view.layoutIfNeeded()
     }
 
-    private static func draw(_ view: UIView, scale: CGFloat) throws -> Data {
+    private static func draw(_ view: UIView, scale: CGFloat) throws -> CGImage {
         let bounds = view.bounds
         guard bounds.width > 0, bounds.height > 0 else { throw ComponentError.empty }
         let format = UIGraphicsImageRendererFormat()
@@ -286,8 +296,8 @@ final class ComponentExporter {
         let image = UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in
             _ = view.drawHierarchy(in: bounds, afterScreenUpdates: true)
         }
-        guard let png = image.pngData() else { throw ComponentError.empty }
-        return png
+        guard let drawing = image.cgImage else { throw ComponentError.empty }
+        return drawing
     }
     #endif
 }

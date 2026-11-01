@@ -7,7 +7,8 @@ import PackageDescription
 //
 // - ProductPageKitCapture: what an app links, DEBUG only. Its scenes, the
 //   director that moves between them, and the ready signal. Built on
-//   ProductPageKitControl, the wire protocol it and the runner share.
+//   ProductPageKitControl, the wire protocol it and the runner share, and the
+//   measure both take two drawings to show the same picture by.
 // - ProductPageKitFrames: drawing for framed screenshots and videos: the
 //   canvas, device bezels, text columns, grain, and the video compositor.
 //   Knows nothing of App Store Connect or projects.
@@ -74,7 +75,8 @@ let package = Package(
             resources: [.copy("Review/review.html")],
             swiftSettings: settings
         ),
-        .testTarget(name: "ProductPageKitCaptureTests", dependencies: ["ProductPageKitCapture", "ProductPageKitControl", "ProductPageKitCore"]),
+        .testTarget(name: "ProductPageKitCaptureTests",
+                    dependencies: ["ProductPageKitCapture", "ProductPageKitControl", "ProductPageKitCore", "ProductPageKitTestSupport"]),
         // Golden image comparison, shared by the test targets that draw.
         .target(name: "ProductPageKitTestSupport", path: "Tests/Support", swiftSettings: settings),
         // `Golden` reads its images from beside the test's source, not a bundle.
@@ -83,7 +85,7 @@ let package = Package(
         .testTarget(name: "ProductPageKitCoreTests", dependencies: ["ProductPageKitCore", "ProductPageKitFrames"]),
         .testTarget(
             name: "ProductPageKitRunnerTests",
-            dependencies: ["ProductPageKitRunner", "ProductPageKitCore", "ProductPageKitControl"]
+            dependencies: ["ProductPageKitRunner", "ProductPageKitCore", "ProductPageKitControl", "ProductPageKitTestSupport"]
         ),
         .testTarget(
             name: "ProductPageKitASCTests",
@@ -97,6 +99,7 @@ let package = Package(
             name: "ProductPageKitTests",
             dependencies: [
                 "ProductPageKit",
+                "ProductPageKitControl",
                 "ProductPageKitRunner",
                 "ProductPageKitTestSupport",
                 "ProductPageKitASC",

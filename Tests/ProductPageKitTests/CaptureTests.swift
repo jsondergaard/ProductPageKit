@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import ImageIO
+import ProductPageKitControl
 import Testing
 @testable import ProductPageKit
 @testable import ProductPageKitRunner
@@ -112,7 +113,7 @@ struct CaptureTests {
             // nothing around it.
             for locale in [Self.en, Self.da] {
                 let basket = try Self.image(session.cache.component(platform, locale, SampleFrames.basket))
-                let pixels = try #require(FrameStability.pixels(basket))
+                let pixels = try #require(basket.rgbaPixels)
                 #expect(pixels[3] == 0, "\(platform.id)/\(locale.code) basket corner")
                 let middle = (basket.height / 2 * basket.width + basket.width / 2) * 4
                 #expect(pixels[middle + 3] == 255 && pixels[middle + 2] > pixels[middle], "\(platform.id)/\(locale.code) basket middle")
@@ -316,7 +317,7 @@ struct CaptureTests {
     /// Every pixel the same colour, which is what a capture of nothing is.
     /// The average of each channel, from 0 to 255.
     static func meanColour(_ image: CGImage) throws -> (Int, Int, Int) {
-        let pixels = try #require(FrameStability.pixels(image))
+        let pixels = try #require(image.rgbaPixels)
         var sums = [0, 0, 0]
         for pixel in stride(from: 0, to: pixels.count, by: 4) {
             for channel in 0..<3 { sums[channel] += Int(pixels[pixel + channel]) }
