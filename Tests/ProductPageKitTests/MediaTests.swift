@@ -134,12 +134,24 @@ import ProductPageKitTestSupport
         let set = fixture.fake.addSet("APP_IPHONE_67", of: ("appStoreVersionExperimentTreatmentLocalization",
                                                             "appStoreVersionExperimentTreatmentLocalizations", localization),
                                       shots: [("control_1.png", "c1"), ("control_2.png", "c2")])
-        let run = Run(asc: try fixture.session.connect())
+        let run = Run(asc: try fixture.session.connect(), fill: FillWait(interval: .zero))
         await run.record("en-US", id: localization)
 
         try await plan.changes[0].perform(run)
 
         #expect(fixture.fake.screenshots(inSet: set).map { $0.attributes["fileName"] as? String } == ["01_home.png"])
+    }
+
+    /// A filled set counts as settled once its screenshots stop changing
+    /// between reads; an empty one takes longer, since the fill may not have
+    /// started.
+    @Test func aFillSettlesOnceItsScreenshotsStopChanging() {
+        let wait = FillWait(settledReads: 3, emptyReads: 5)
+        #expect(!wait.settled([["a"], ["a", "b"], ["a", "b"]]))
+        #expect(wait.settled([["a"], ["a", "b"], ["a", "b"], ["a", "b"]]))
+        #expect(!wait.settled([[], [], [], []]))
+        #expect(wait.settled([[], [], [], [], []]))
+        #expect(!wait.settled([[], [], [], [], ["a"]]))
     }
 
     /// A set the plan read that changed before the change runs is left as

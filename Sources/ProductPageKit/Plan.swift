@@ -45,10 +45,13 @@ struct Plan: Sendable {
 /// Applying a plan: the API, and the ids of what earlier changes created.
 actor Run {
     let asc: AppStoreConnect
+    /// How long a change waits for App Store Connect to fill a localization.
+    let fill: FillWait
     private var created: [String: String] = [:]
 
-    init(asc: AppStoreConnect) {
+    init(asc: AppStoreConnect, fill: FillWait = FillWait()) {
         self.asc = asc
+        self.fill = fill
     }
 
     func id(_ ref: Ref) throws -> String {

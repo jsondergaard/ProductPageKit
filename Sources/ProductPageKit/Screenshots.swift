@@ -173,13 +173,17 @@ extension Change {
     /// An upload that makes the screenshot set of `platform` on a localization
     /// hold exactly `basis.files`. The set is read again when the change
     /// runs, since a copy made by a new version, by App Store Connect filling
-    /// a new localization, or by an earlier run, is after the plan. A set the
+    /// a new localization, or by an earlier run, is after the plan; a filled
+    /// one once the fill has settled (`FillWait`). A set the
     /// plan read that no longer holds what the plan was made from is left
     /// as it is.
     static func syncSet(_ subject: String, platform: Platform.Kind, owner: @escaping @Sendable (String) -> ScreenshotSetOwner,
                         localization: Ref, basis: SetBasis, existingSet: String?) -> Change {
         Change(action: .upload, subject: subject, lines: basis.lines, concurrent: true) { run in
             let owner = owner(try await run.id(localization))
+            if case .filled = basis {
+                try await run.asc.awaitFill(owner, displayType: platform.displayType, subject: subject, wait: run.fill)
+            }
             let setID: String
             if let existingSet {
                 setID = existingSet
@@ -194,6 +198,55 @@ extension Change {
             }
             try await sync.apply(run.asc, setID: setID)
         }
+    }
+}
+
+/// How a change waits for App Store Connect to fill a localization it just
+/// created with the control's screenshots. The fill lands after the create
+/// answers, so a set read before it settles takes the fill on top of the
+/// upload, past the ten a set holds, or is reordered against screenshots the
+/// read never saw.
+struct FillWait: Sendable {
+    var interval: Duration = .seconds(2)
+    /// Reads in a row that must show the same screenshots.
+    var settledReads = 3
+    /// Reads in a row an empty set needs: the control may have nothing on
+    /// this display, and the fill may not have started.
+    var emptyReads = 8
+    var limit: Duration = .seconds(180)
+
+    /// True once `reads`, a set's screenshot ids oldest first, have stopped
+    /// changing.
+    func settled(_ reads: [[String]]) -> Bool {
+        guard let last = reads.last else { return false }
+        let needed = last.isEmpty ? emptyReads : settledReads
+        return reads.count >= needed && reads.suffix(needed).allSatisfy { $0 == last }
+    }
+}
+
+extension AppStoreConnect {
+    /// Returns once the owner's set of `displayType` has stopped changing.
+    func awaitFill(_ owner: ScreenshotSetOwner, displayType: String, subject: String, wait: FillWait) async throws {
+        let deadline = ContinuousClock.now + wait.limit
+        var reads: [[String]] = []
+        while true {
+            if let setID = try await screenshotSets(owner)[displayType] {
+                reads.append(try await screenshots(setID: setID).map(\.id))
+            } else {
+                reads.append([])
+            }
+            if wait.settled(reads) { return }
+            guard ContinuousClock.now < deadline else { throw FillNotSettled(subject: subject) }
+            try await Task.sleep(for: wait.interval)
+        }
+    }
+}
+
+struct FillNotSettled: Error, CustomStringConvertible {
+    let subject: String
+
+    var description: String {
+        "App Store Connect was still filling \(subject) with the control's screenshots. Nothing was written to it; run the push again."
     }
 }
 
