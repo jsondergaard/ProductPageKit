@@ -134,7 +134,8 @@ import ProductPageKitTestSupport
     /// A light ground's build: a warm, short shadow, no island, and lengths
     /// that follow a wider measure than the screen.
     static let ink = DeviceBezel.Style(
-        corners: .init(iPhone: 0.085, iPad: 0.035, iPhoneDuo: 0.03, mac: 0.012, appleTV: 0.004), bezels: .init(0.01),
+        corners: .init(iPhone: 0.085, iPad: 0.035, iPhoneDuo: 0.03, mac: 0.012, appleTV: 0.004, androidPhone: 0.07,
+                       androidTablet: 0.03, androidTV: 0.004, wear: 0.5), bezels: .init(0.01),
         shadowOffset: 0.014, shadowBlur: 0.045, shadowColor: .hex(0x3A2418, alpha: 0.34),
         edge: .init(color: .hex(0xFFFFFF, alpha: 0.16), width: 0.0016), seam: .init(color: .hex(0x000000, alpha: 0.22), width: 0.0012),
         island: false)

@@ -90,6 +90,8 @@ extension AppStoreConnect {
 /// The files one platform's screenshot set should hold, in order.
 struct LocalSet: Sendable {
     let platform: Platform.Kind
+    /// App Store Connect's for the platform.
+    let displayType: String
     let files: [LocalScreenshot]
 }
 
@@ -99,11 +101,13 @@ extension [FramedScreenshot] {
         try filter { $0.list == list && $0.platform.kind == platform && $0.locale == locale }.map(LocalScreenshot.init)
     }
 
-    /// The files of `list` in `locale` on each of `platforms` that has any.
+    /// The files of `list` in `locale` on each of `platforms` that is the
+    /// App Store's and has any.
     func sets(of list: ShotList, on platforms: [Platform.Kind], in locale: StoreLocale) throws -> [LocalSet] {
         try platforms.compactMap { platform in
+            guard let displayType = platform.displayType else { return nil }
             let files = try files(of: list, on: platform, in: locale)
-            return files.isEmpty ? nil : LocalSet(platform: platform, files: files)
+            return files.isEmpty ? nil : LocalSet(platform: platform, displayType: displayType, files: files)
         }
     }
 }
@@ -155,7 +159,7 @@ extension Plan {
             var existingSet: String?
             switch stored {
             case .stored(let held), .copied(let held):
-                let storedSet = held[set.platform.displayType]
+                let storedSet = held[set.displayType]
                 let sync = SetSync(local: set.files, remote: storedSet?.screenshots ?? [])
                 guard !sync.isEmpty else { continue }
                 basis = .read(sync)
@@ -163,7 +167,7 @@ extension Plan {
             case .filled(let source):
                 basis = .filled(by: source, files: set.files)
             }
-            add(.syncSet("\(subject) · \(set.platform.name)", platform: set.platform, owner: owner, localization: localization,
+            add(.syncSet("\(subject) · \(set.platform.name)", displayType: set.displayType, owner: owner, localization: localization,
                          basis: basis, existingSet: existingSet))
         }
     }
@@ -177,20 +181,20 @@ extension Change {
     /// one once the fill has settled (`FillWait`). A set the
     /// plan read that no longer holds what the plan was made from is left
     /// as it is.
-    static func syncSet(_ subject: String, platform: Platform.Kind, owner: @escaping @Sendable (String) -> ScreenshotSetOwner,
+    static func syncSet(_ subject: String, displayType: String, owner: @escaping @Sendable (String) -> ScreenshotSetOwner,
                         localization: Ref, basis: SetBasis, existingSet: String?) -> Change {
         Change(action: .upload, subject: subject, lines: basis.lines, concurrent: true) { run in
             let owner = owner(try await run.id(localization))
             if case .filled = basis {
-                try await run.asc.awaitFill(owner, displayType: platform.displayType, subject: subject, wait: run.fill)
+                try await run.asc.awaitFill(owner, displayType: displayType, subject: subject, wait: run.fill)
             }
             let setID: String
             if let existingSet {
                 setID = existingSet
-            } else if let found = try await run.asc.screenshotSets(owner)[platform.displayType] {
+            } else if let found = try await run.asc.screenshotSets(owner)[displayType] {
                 setID = found
             } else {
-                setID = try await run.asc.createScreenshotSet(owner, displayType: platform.displayType)
+                setID = try await run.asc.createScreenshotSet(owner, displayType: displayType)
             }
             let sync = SetSync(local: basis.files, remote: try await run.asc.screenshots(setID: setID))
             if case .read(let planned) = basis, sync.lines != planned.lines {
@@ -278,10 +282,12 @@ struct ScreenshotsPlanner {
         var localizations: [String: [String: Localized<VersionText>]] = [:]
         // Each set to sync, in plan order, after the change that creates its
         // localization where one does.
-        var sets: [(platform: Platform, locale: StoreLocale, localization: Ref, files: [LocalScreenshot], plan: Plan)] = []
+        var sets: [(platform: Platform, displayType: String, locale: StoreLocale, localization: Ref, files: [LocalScreenshot],
+                    plan: Plan)] = []
         for platform in platforms {
-            guard let version = versions[platform.storePlatform] else {
-                plan.warn("\(platform.storePlatform.name) has no editable version, so \(platform.name) screenshots are left as they are")
+            guard let storePlatform = platform.storePlatform, let displayType = platform.kind.displayType else { continue }
+            guard let version = versions[storePlatform] else {
+                plan.warn("\(storePlatform.name) has no editable version, so \(platform.name) screenshots are left as they are")
                 continue
             }
             if localizations[version.id] == nil {
@@ -311,7 +317,7 @@ struct ScreenshotsPlanner {
                         await run.record(localizationKey, id: id)
                     })
                 }
-                sets.append((platform, locale, localization, files, creation))
+                sets.append((platform, displayType, locale, localization, files, creation))
             }
         }
         // What each existing localization holds, read once for all its
@@ -326,10 +332,10 @@ struct ScreenshotsPlanner {
         let stored = Dictionary(uniqueKeysWithValues: held)
         for set in sets {
             plan = plan + set.plan
-            let storedSet: StoredSet? = if case .existing(let id) = set.localization { stored[id]?[set.platform.displayType] } else { nil }
+            let storedSet: StoredSet? = if case .existing(let id) = set.localization { stored[id]?[set.displayType] } else { nil }
             let sync = SetSync(local: set.files, remote: storedSet?.screenshots ?? [])
             guard !sync.isEmpty else { continue }
-            plan.add(.syncSet("\(set.platform.name) · \(set.locale.store)", platform: set.platform.kind,
+            plan.add(.syncSet("\(set.platform.name) · \(set.locale.store)", displayType: set.displayType,
                               owner: ScreenshotSetOwner.version, localization: set.localization,
                               basis: .read(sync), existingSet: storedSet?.id))
         }

@@ -81,11 +81,13 @@ public struct Cache: Sendable {
     public var buildLock: URL { root.appending(path: "locks/xcodebuild.lock") }
 
     /// Simulators are cloned per run, so two apps capture side by side. The
-    /// Mac captures the front window, which there is one of.
+    /// Mac captures the front window, which there is one of, and an Android
+    /// emulator or device runs one app in front, for every app.
     public func lock(_ platform: Platform) -> URL {
         switch platform.capture {
-        case .simulator: directory.appending(path: "locks/\(platform.id).lock")
+        case .simulator, .drawn: directory.appending(path: "locks/\(platform.id).lock")
         case .window: root.appending(path: "locks/\(platform.id).lock")
+        case .android(let device): root.appending(path: "locks/android-\(device.name).lock")
         }
     }
 }

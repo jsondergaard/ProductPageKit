@@ -19,6 +19,12 @@ public struct DeviceBezel: DeviceLook {
         /// A window, so its corners are small and its edge thin.
         case mac
         case appleTV
+        case androidPhone
+        /// Seven- and ten-inch alike.
+        case androidTablet
+        case androidTV
+        /// Round, as most watches are.
+        case wear
     }
 
     /// How a brand builds its devices. Lengths are fractions of the bezel's
@@ -31,18 +37,28 @@ public struct DeviceBezel: DeviceLook {
             public var iPhoneDuo: CGFloat
             public var mac: CGFloat
             public var appleTV: CGFloat
+            public var androidPhone: CGFloat
+            public var androidTablet: CGFloat
+            public var androidTV: CGFloat
+            public var wear: CGFloat
 
-            public init(iPhone: CGFloat, iPad: CGFloat, iPhoneDuo: CGFloat, mac: CGFloat, appleTV: CGFloat) {
+            public init(iPhone: CGFloat, iPad: CGFloat, iPhoneDuo: CGFloat, mac: CGFloat, appleTV: CGFloat, androidPhone: CGFloat,
+                        androidTablet: CGFloat, androidTV: CGFloat, wear: CGFloat) {
                 self.iPhone = iPhone
                 self.iPad = iPad
                 self.iPhoneDuo = iPhoneDuo
                 self.mac = mac
                 self.appleTV = appleTV
+                self.androidPhone = androidPhone
+                self.androidTablet = androidTablet
+                self.androidTV = androidTV
+                self.wear = wear
             }
 
             /// The same value for every model.
             public init(_ value: CGFloat) {
-                self.init(iPhone: value, iPad: value, iPhoneDuo: value, mac: value, appleTV: value)
+                self.init(iPhone: value, iPad: value, iPhoneDuo: value, mac: value, appleTV: value, androidPhone: value,
+                          androidTablet: value, androidTV: value, wear: value)
             }
 
             public subscript(model: Model) -> CGFloat {
@@ -52,6 +68,10 @@ public struct DeviceBezel: DeviceLook {
                 case .iPhoneDuo: iPhoneDuo
                 case .mac: mac
                 case .appleTV: appleTV
+                case .androidPhone: androidPhone
+                case .androidTablet: androidTablet
+                case .androidTV: androidTV
+                case .wear: wear
                 }
             }
         }
@@ -98,10 +118,13 @@ public struct DeviceBezel: DeviceLook {
         /// iPhone Duo's corner is as wide as the inner display's own, which
         /// its simulator mask puts at 6.5% of the landscape width. Any
         /// tighter and the capture's black corners show inside the screen,
-        /// beside a sidebar iOS rounds to the display.
+        /// beside a sidebar iOS rounds to the display. A watch's corner is
+        /// half its width, which makes it round.
         public static let standard = Style(
-            corners: PerModel(iPhone: 0.085, iPad: 0.03, iPhoneDuo: 0.065, mac: 0.012, appleTV: 0.004),
-            bezels: PerModel(iPhone: 0.0125, iPad: 0.025, iPhoneDuo: 0.0175, mac: 0.0125, appleTV: 0.008),
+            corners: PerModel(iPhone: 0.085, iPad: 0.03, iPhoneDuo: 0.065, mac: 0.012, appleTV: 0.004, androidPhone: 0.07,
+                              androidTablet: 0.03, androidTV: 0.004, wear: 0.5),
+            bezels: PerModel(iPhone: 0.0125, iPad: 0.025, iPhoneDuo: 0.0175, mac: 0.0125, appleTV: 0.008, androidPhone: 0.015,
+                             androidTablet: 0.025, androidTV: 0.008, wear: 0.06),
             shadowOffset: 0.0225, shadowBlur: 0.075, shadowColor: .hex(0x000000, alpha: 0.55),
             edge: Line(color: .hex(0xFFFFFF, alpha: 0.22), width: 0.002),
             seam: Line(color: .hex(0x000000, alpha: 0.35), width: 0.0015),

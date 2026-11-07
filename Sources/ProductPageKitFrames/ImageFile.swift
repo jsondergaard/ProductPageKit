@@ -66,4 +66,16 @@ extension CGImage {
     }
 
     public var size: CGSize { CGSize(width: width, height: height) }
+
+    /// This image without an alpha channel, over black where it was not
+    /// opaque, which a PNG then writes as 24-bit colour.
+    public func opaque() -> CGImage {
+        let space = colorSpace.flatMap { $0.model == .rgb ? $0 : nil } ?? CGColorSpace(name: CGColorSpace.sRGB)!
+        let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        context.setFillColor(CGColor(gray: 0, alpha: 1))
+        context.fill(CGRect(origin: .zero, size: size))
+        context.draw(self, in: CGRect(origin: .zero, size: size))
+        return context.makeImage()!
+    }
 }

@@ -2,6 +2,7 @@ import ArgumentParser
 public import Foundation
 public import ProductPageKitASC
 public import ProductPageKitCore
+public import ProductPageKitPlay
 
 /// Where commands print and ask: the terminal in use, a recording in tests.
 public protocol Console: Sendable {
@@ -37,7 +38,8 @@ public struct Stopped: Error, CustomStringConvertible {
 }
 
 /// What every command runs against: the project, the repository it lives in,
-/// the environment, where to print, and how to reach App Store Connect.
+/// the environment, where to print, and how to reach App Store Connect and
+/// Google Play.
 public struct Session: Sendable {
     public let project: Project
     public let root: URL
@@ -46,27 +48,30 @@ public struct Session: Sendable {
     /// Where captures and builds go, outside the repository.
     public let cache: Cache
     let connect: @Sendable () throws -> AppStoreConnect
+    let connectPlay: @Sendable () throws -> GooglePlayAPI
 
     @TaskLocal static var current: Session?
 
     /// The repository around the working directory, its `.env`, the terminal,
-    /// and the API key the environment names.
+    /// and the API keys the environment names.
     public init(project: Project) throws {
         let root = try Repository.root()
         let environment = try Environment.load(root: root)
         self.init(project: project, root: root, environment: environment, console: TerminalConsole(),
-                  cache: Cache(bundleID: project.bundleID)) {
-            AppStoreConnect(credentials: try Credentials(environment: environment))
-        }
+                  cache: Cache(bundleID: project.bundleID),
+                  connectPlay: { GooglePlayAPI(credentials: try PlayCredentials(environment: environment)) },
+                  connect: { AppStoreConnect(credentials: try Credentials(environment: environment)) })
     }
 
     public init(project: Project, root: URL, environment: Environment, console: any Console, cache: Cache,
+                connectPlay: @escaping @Sendable () throws -> GooglePlayAPI,
                 connect: @escaping @Sendable () throws -> AppStoreConnect) {
         self.project = project
         self.root = root
         self.environment = environment
         self.console = console
         self.cache = cache
+        self.connectPlay = connectPlay
         self.connect = connect
     }
 
@@ -88,6 +93,11 @@ public struct Session: Sendable {
     /// The platforms a `--platforms` flag names, or every one.
     func platforms(_ flag: String) throws -> [Platform] {
         try selection(flag, from: project.platforms, name: \.id, kind: "platform")
+    }
+
+    /// The platforms of `store` a `--platforms` flag names, or every one.
+    func platforms(_ flag: String, in store: Store) throws -> [Platform] {
+        try selection(flag, from: project.platforms(in: store), name: \.id, kind: "\(store.name) platform")
     }
 
     /// The locales a `--locales` flag names, or every one.
@@ -128,15 +138,16 @@ public struct Session: Sendable {
     /// Store Connect, whose busy answers `Retry` waits out.
     static let concurrentChanges = 6
 
-    /// Prints the plan, asks, and applies it: the end of every write command.
+    /// Prints the plan, asks, and applies it: the end of every App Store
+    /// Connect write command.
     func execute(_ plan: Plan, asc: AppStoreConnect, options: WriteOptions) async throws {
         guard try confirm(plan, options: options) else { return }
-        try await apply(plan, asc: asc)
+        try await apply(plan, to: Run(asc: asc))
     }
 
     /// Prints the plan and asks. False when there is nothing to change or
     /// the run is dry; a refusal throws.
-    func confirm(_ plan: Plan, options: WriteOptions) throws -> Bool {
+    func confirm<Context>(_ plan: WritePlan<Context>, options: WriteOptions) throws -> Bool {
         for warning in plan.warnings { warn(warning) }
         guard !plan.changes.isEmpty else {
             console.print("Nothing to change.")
@@ -161,11 +172,10 @@ public struct Session: Sendable {
     /// Makes every change of a confirmed plan, carrying on past a failed one,
     /// and fails when any did. Concurrent changes run up to `width` at a
     /// time, each reported as it ends; any other runs alone, in plan order.
-    func apply(_ plan: Plan, asc: AppStoreConnect, width: Int = Self.concurrentChanges) async throws {
+    func apply<Context>(_ plan: WritePlan<Context>, to context: Context, width: Int = Self.concurrentChanges) async throws {
         let count = counted(plan.changes.count, "change")
-        let run = Run(asc: asc)
         var failed = 0
-        func report(_ change: Change, _ error: (any Error)?) {
+        func report(_ change: WriteChange<Context>, _ error: (any Error)?) {
             let label = "\(change.action.rawValue) \(change.subject)"
             if let error {
                 failed += 1
@@ -174,15 +184,15 @@ public struct Session: Sendable {
                 console.print("  done    \(label)")
             }
         }
-        @Sendable func perform(_ change: Change) async -> (Change, (any Error)?) {
+        @Sendable func perform(_ change: WriteChange<Context>) async -> (WriteChange<Context>, (any Error)?) {
             do {
-                try await change.perform(run)
+                try await change.perform(context)
                 return (change, nil)
             } catch {
                 return (change, error)
             }
         }
-        await withTaskGroup(of: (Change, (any Error)?).self) { group in
+        await withTaskGroup(of: (WriteChange<Context>, (any Error)?).self) { group in
             var running = 0
             for change in plan.changes {
                 if !change.concurrent {

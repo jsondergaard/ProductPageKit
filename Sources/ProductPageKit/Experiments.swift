@@ -116,8 +116,8 @@ struct ExperimentsPlanner {
         }
 
         let uncovered = project.locales.filter { locale in
-            !locales.contains(locale) && !project.alternatePlatforms.allSatisfy {
-                current[locale.store]?.sets[$0.displayType]?.screenshots.isEmpty == false
+            !locales.contains(locale) && !project.alternatePlatforms.compactMap(\.displayType).allSatisfy {
+                current[locale.store]?.sets[$0]?.screenshots.isEmpty == false
             }
         }
         if !uncovered.isEmpty {

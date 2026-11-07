@@ -23,6 +23,24 @@ public struct StoreLocale: Hashable, Sendable {
     /// and the one a capture launches the app in.
     public var localeIdentifier: String { store.replacingOccurrences(of: "-", with: "_") }
 
+    /// Google Play's language for the listing App Store Connect calls
+    /// `store`, or nil for one Google Play has no listing language for.
+    public var playLanguage: String? { Self.playLanguages[store] }
+
+    /// App Store Connect's locales and the Google Play languages they are
+    /// listed in. Google Play names most with a region, Hebrew by its old
+    /// code, and Latin American Spanish as one listing.
+    static let playLanguages: [String: String] = [
+        "ar-SA": "ar", "bn-BD": "bn-BD", "ca": "ca", "cs": "cs-CZ", "da": "da-DK", "de-DE": "de-DE", "el": "el-GR",
+        "en-AU": "en-AU", "en-CA": "en-CA", "en-GB": "en-GB", "en-US": "en-US", "es-ES": "es-ES", "es-MX": "es-419",
+        "fi": "fi-FI", "fr-CA": "fr-CA", "fr-FR": "fr-FR", "gu-IN": "gu", "he": "iw-IL", "hi": "hi-IN", "hr": "hr",
+        "hu": "hu-HU", "id": "id", "it": "it-IT", "ja": "ja-JP", "kn-IN": "kn-IN", "ko": "ko-KR", "ml-IN": "ml-IN",
+        "mr-IN": "mr-IN", "ms": "ms", "nl-NL": "nl-NL", "no": "no-NO", "pa-IN": "pa", "pl": "pl-PL", "pt-BR": "pt-BR",
+        "pt-PT": "pt-PT", "ro": "ro", "ru": "ru-RU", "sk": "sk", "sl-SI": "sl", "sv": "sv-SE", "ta-IN": "ta-IN",
+        "te-IN": "te-IN", "th": "th", "tr": "tr-TR", "uk": "uk", "ur-PK": "ur", "vi": "vi", "zh-Hans": "zh-CN",
+        "zh-Hant": "zh-TW",
+    ]
+
     /// Whether the store's language is written right to left, as a theme
     /// mirrors its layout for.
     public var isRightToLeft: Bool {

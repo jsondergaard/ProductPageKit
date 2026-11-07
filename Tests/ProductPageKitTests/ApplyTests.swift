@@ -49,7 +49,7 @@ actor Timeline {
             change("create", concurrent: false, on: timeline),
             change("c", concurrent: true, on: timeline),
         ])
-        try await fixture.session.apply(plan, asc: asc)
+        try await fixture.session.apply(plan, to: Run(asc: asc))
         #expect(await timeline.index(of: "start b") < timeline.index(of: "end a"))
         #expect(await timeline.index(of: "start create") > max(timeline.index(of: "end a"), timeline.index(of: "end b")))
         #expect(await timeline.index(of: "start c") > timeline.index(of: "end create"))
@@ -60,7 +60,7 @@ actor Timeline {
         let fixture = try Fixture()
         let timeline = Timeline()
         let plan = Plan(changes: (1...5).map { change("\($0)", concurrent: true, on: timeline) })
-        try await fixture.session.apply(plan, asc: asc, width: 2)
+        try await fixture.session.apply(plan, to: Run(asc: asc), width: 2)
         #expect(await timeline.mostAtOnce == 2)
         #expect(await timeline.events.count == 10)
     }
@@ -73,7 +73,7 @@ actor Timeline {
             change("a", concurrent: true, on: timeline, failing: true), change("b", concurrent: true, on: timeline),
             change("c", concurrent: false, on: timeline),
         ])
-        await #expect(throws: (any Error).self) { try await fixture.session.apply(plan, asc: asc) }
+        await #expect(throws: (any Error).self) { try await fixture.session.apply(plan, to: Run(asc: asc)) }
         #expect(await timeline.events.filter { $0.hasPrefix("end") }.count == 3)
         #expect(fixture.console.output.contains("failed  upload a: a failed"))
         #expect(fixture.console.output.contains("2 of 3 changes applied, 1 failed."))

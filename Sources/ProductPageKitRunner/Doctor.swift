@@ -40,11 +40,41 @@ public struct Doctor: Sendable {
         if project.platforms.contains(where: { $0.isSimulated }) {
             checks.append(await abandonedWorkers(simulators))
         }
+        let android = project.platforms.compactMap { platform -> AndroidDevice? in
+            if case .android(let device) = platform.capture { device } else { nil }
+        }
+        if !android.isEmpty { checks += await androidDevices(Array(Set(android)).sorted { $0.name < $1.name }) }
         if project.platforms.contains(where: { $0.kind == .mac }) {
             checks.append(CGPreflightScreenCaptureAccess()
                 ? DoctorCheck(.ok, "Screen Recording is allowed for this terminal")
                 : DoctorCheck(.failed, RunnerError.noScreenRecording.description))
             if MacCapture.isScreenLocked { checks.append(DoctorCheck(.warning, RunnerError.screenLocked.description)) }
+        }
+        return checks
+    }
+
+    /// The SDK, then each emulator's AVD or device's connection.
+    private func androidDevices(_ devices: [AndroidDevice]) async -> [DoctorCheck] {
+        let sdk: AndroidSDK
+        do {
+            sdk = try AndroidSDK.locate()
+        } catch {
+            return [DoctorCheck(.failed, "\(error)")]
+        }
+        var checks = [DoctorCheck(.ok, "adb at \(sdk.adb)")]
+        let avds = (try? await sdk.avds()) ?? []
+        let online = (try? await sdk.online()) ?? []
+        for device in devices {
+            switch device {
+            case .emulator(let name):
+                checks.append(avds.contains(name)
+                    ? DoctorCheck(.ok, "the Android Virtual Device \(name)")
+                    : DoctorCheck(.failed, RunnerError.noAVD(name, available: avds).description))
+            case .device(let serial):
+                checks.append(online.contains(serial)
+                    ? DoctorCheck(.ok, "the Android device \(serial) is online")
+                    : DoctorCheck(.warning, RunnerError.noAndroidDevice(serial).description))
+            }
         }
         return checks
     }

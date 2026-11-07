@@ -140,9 +140,9 @@ extension ScreenshotsCommand.Edit: Guided {
 }
 
 extension ScreenshotsCommand.Push: Guided {
-    static func isAvailable(in project: Project) -> Bool { project.frames != nil }
+    static func isAvailable(in project: Project) -> Bool { project.frames != nil && !project.platforms(in: .appStore).isEmpty }
     static func arguments(_ ask: Prompter, _ project: Project) throws(MenuExit) -> [String] {
-        try ask.platforms(project.platforms).arguments + ask.locales(project.locales) + ask.writeMode()
+        try ask.platforms(project.platforms(in: .appStore)).arguments + ask.locales(project.locales) + ask.writeMode()
     }
 }
 
@@ -186,6 +186,24 @@ extension BuildsCommand.Upload: Guided {
     static func arguments(_ ask: Prompter, _ project: Project) throws(MenuExit) -> [String] {
         try ask.storePlatforms(project.buildPlatforms) + ask.writeMode()
     }
+}
+
+extension PlayCommand.Metadata.Push: Guided {
+    static func isAvailable(in project: Project) -> Bool { project.play != nil }
+    static func arguments(_ ask: Prompter, _ project: Project) throws(MenuExit) -> [String] {
+        try ask.locales(project.locales) + ask.writeMode()
+    }
+}
+
+extension PlayCommand.Screenshots.Push: Guided {
+    static func isAvailable(in project: Project) -> Bool { project.play != nil && !project.platforms(in: .googlePlay).isEmpty }
+    static func arguments(_ ask: Prompter, _ project: Project) throws(MenuExit) -> [String] {
+        try ask.platforms(project.platforms(in: .googlePlay)).arguments + ask.locales(project.locales) + ask.writeMode()
+    }
+}
+
+extension PlayCommand.Status: Guided {
+    static func isAvailable(in project: Project) -> Bool { project.play != nil }
 }
 
 extension ReviewCommand: Guided {}

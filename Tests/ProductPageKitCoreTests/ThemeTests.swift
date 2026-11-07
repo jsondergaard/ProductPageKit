@@ -19,7 +19,7 @@ struct PlainMotion: MotionTheme {
 
 struct PlainStage: MotionStage {
     var deviceGlow: CGColor? { nil }
-    func device(_ platform: Platform.Kind, screen: CGRect) -> any DeviceLook { DeviceBezel(platform.bezel, screen: screen) }
+    func device(_ platform: Platform.Kind, screen: CGRect) -> any DeviceLook { DeviceBezel(platform.bezel!, screen: screen) }
     func drawCaption(_ caption: Caption, on canvas: Canvas, locale: StoreLocale) -> CGRect { .zero }
     func background(at time: Double, layout: VideoLayout) -> CIImage { .empty() }
     func foreground(over image: CIImage, caption: CaptionLayer, layout: VideoLayout, at time: Double) -> CIImage { image }
@@ -201,8 +201,8 @@ struct PlainStage: MotionStage {
         #expect(Platform.Kind.iPad.screenshotSize == CGSize(width: 2064, height: 2752))
         #expect(Platform.Kind.mac.screenshotSize == CGSize(width: 2880, height: 1800))
         #expect(Platform.Kind.appleTV.screenshotSize == CGSize(width: 3840, height: 2160))
-        #expect(Platform.Kind.iPhone.acceptedSizes.contains(CGSize(width: 2868, height: 1320)))
-        #expect(!Platform.Kind.mac.acceptedSizes.contains(CGSize(width: 1600, height: 1200)))
+        #expect(Platform.Kind.iPhone.accepts(CGSize(width: 2868, height: 1320)))
+        #expect(!Platform.Kind.mac.accepts(CGSize(width: 1600, height: 1200)))
     }
 
     @Test func videoCanvasesAndSafeAreasAreApples() {

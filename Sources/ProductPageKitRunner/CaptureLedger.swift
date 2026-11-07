@@ -71,15 +71,34 @@ actor CaptureFingerprints {
             build = Self.digest(ofBundlesIn: folder)
             folders[folder] = build
         }
+        return Self.inputs(for: platform, contract: "protocol \(ControlProtocol.version)", build: build, device: device,
+                           project: project, files: files, force: force)
+    }
+
+    /// - Parameters:
+    ///   - contract: what the app and the runner agree on, so a change to it
+    ///     takes everything again.
+    ///   - build: a digest of the app as built.
+    nonisolated static func inputs(for platform: Platform, contract: String, build: String, device: String, project: Project,
+                                   files: [URL], force: Bool) -> CaptureInputs {
         let parts = [
-            "protocol \(ControlProtocol.version)", "platform \(platform.id)", "device \(device)", "build \(build)",
+            contract, "platform \(platform.id)", "device \(device)", "build \(build)",
             "appearance \(project.appearance)", "text \(project.contentSize)", "status bar \(platform.kind.statusBar)",
             "clock \(project.statusBarTime == .nineFortyOne ? "9:41" : "start")", "locale \(project.simulatorLocale)",
         ] + files.map { file in
             let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
             return "file \(file.lastPathComponent) \(size)"
         }
-        return CaptureInputs(stamp: Self.hex(SHA256.hash(data: Data(parts.joined(separator: "\n").utf8))), force: force)
+        return CaptureInputs(stamp: hex(SHA256.hash(data: Data(parts.joined(separator: "\n").utf8))), force: force)
+    }
+
+    /// The file at `url` by content: an APK.
+    nonisolated static func digest(of url: URL) throws -> String {
+        var hasher = SHA256()
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty { hasher.update(data: chunk) }
+        return hex(hasher.finalize())
     }
 
     /// Every `.app` in `folder` by path and content, symbolic links by where

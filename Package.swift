@@ -1,9 +1,9 @@
 // swift-tools-version: 6.2
 import PackageDescription
 
-// ProductPageKit keeps an app's App Store product page in its repository:
-// screenshots, videos, text metadata, release notes and in-app products. It
-// also uploads the app's builds to TestFlight.
+// ProductPageKit keeps an app's App Store product page and Google Play
+// listing in its repository: screenshots, videos, text metadata, release
+// notes and in-app products. It also uploads the app's builds to TestFlight.
 //
 // - ProductPageKitCapture: what an app links, DEBUG only. Its scenes, the
 //   director that moves between them, and the ready signal. Built on
@@ -16,11 +16,16 @@ import PackageDescription
 //   the frame and motion themes, the String Catalog, Apple's field limits,
 //   the product catalogue, the StoreKit configuration file and the cache.
 //   No network.
+// - ProductPageKitHTTP: what both stores' clients share: sending a request
+//   again while a store is busy.
 // - ProductPageKitASC: the App Store Connect API client, generated from
 //   Apple's OpenAPI document, and the operations built on it.
+// - ProductPageKitPlay: the Google Play Developer Publishing API client: a
+//   service account's tokens, edits, listings and images.
 // - ProductPageKitRunner: builds the app, drives simulators and the Mac app
-//   through the control protocol, and writes raw captures to the cache. It
-//   also archives the app and uploads the archives.
+//   through the control protocol and Android emulators and devices through
+//   adb, and writes raw captures to the cache. It also archives the app and
+//   uploads the archives.
 // - ProductPageKit: the commands, and `ProductPageKit.main(project)` for each
 //   app's tools executable.
 
@@ -47,16 +52,29 @@ let package = Package(
         .target(name: "ProductPageKitCapture", dependencies: ["ProductPageKitControl"], swiftSettings: settings),
         .target(name: "ProductPageKitFrames", swiftSettings: settings),
         .target(name: "ProductPageKitCore", dependencies: ["ProductPageKitFrames"], swiftSettings: settings),
+        .target(name: "ProductPageKitHTTP", dependencies: [.product(name: "HTTPTypes", package: "swift-http-types")],
+                swiftSettings: settings),
         .target(
             name: "ProductPageKitASC",
             dependencies: [
                 "ProductPageKitCore",
+                "ProductPageKitHTTP",
                 .product(name: "HTTPTypes", package: "swift-http-types"),
                 .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
                 .product(name: "OpenAPIURLSession", package: "swift-openapi-urlsession"),
             ],
             swiftSettings: settings,
             plugins: [.plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator")]
+        ),
+        .target(
+            name: "ProductPageKitPlay",
+            dependencies: [
+                "ProductPageKitCore",
+                "ProductPageKitHTTP",
+                .product(name: "HTTPTypes", package: "swift-http-types"),
+                .product(name: "HTTPTypesFoundation", package: "swift-http-types"),
+            ],
+            swiftSettings: settings
         ),
         .target(
             name: "ProductPageKitRunner",
@@ -69,6 +87,7 @@ let package = Package(
                 "ProductPageKitCore",
                 "ProductPageKitFrames",
                 "ProductPageKitASC",
+                "ProductPageKitPlay",
                 "ProductPageKitRunner",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
@@ -77,8 +96,11 @@ let package = Package(
         ),
         .testTarget(name: "ProductPageKitCaptureTests",
                     dependencies: ["ProductPageKitCapture", "ProductPageKitControl", "ProductPageKitCore", "ProductPageKitTestSupport"]),
-        // Golden image comparison, shared by the test targets that draw.
-        .target(name: "ProductPageKitTestSupport", path: "Tests/Support", swiftSettings: settings),
+        // Golden image comparison, shared by the test targets that draw, and
+        // an in-memory Google Play.
+        .target(name: "ProductPageKitTestSupport",
+                dependencies: ["ProductPageKitCore", "ProductPageKitPlay", .product(name: "HTTPTypes", package: "swift-http-types")],
+                path: "Tests/Support", swiftSettings: settings),
         // `Golden` reads its images from beside the test's source, not a bundle.
         .testTarget(name: "ProductPageKitFramesTests", dependencies: ["ProductPageKitFrames", "ProductPageKitTestSupport"],
                     exclude: ["Golden"]),
@@ -91,9 +113,15 @@ let package = Package(
             name: "ProductPageKitASCTests",
             dependencies: [
                 "ProductPageKitASC",
+                "ProductPageKitHTTP",
                 .product(name: "HTTPTypes", package: "swift-http-types"),
                 .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
             ]
+        ),
+        .testTarget(
+            name: "ProductPageKitPlayTests",
+            dependencies: ["ProductPageKitPlay", "ProductPageKitCore", "ProductPageKitHTTP", "ProductPageKitTestSupport",
+                           .product(name: "HTTPTypes", package: "swift-http-types")]
         ),
         .testTarget(
             name: "ProductPageKitTests",
@@ -103,6 +131,7 @@ let package = Package(
                 "ProductPageKitRunner",
                 "ProductPageKitTestSupport",
                 "ProductPageKitASC",
+                "ProductPageKitPlay",
                 .product(name: "HTTPTypes", package: "swift-http-types"),
                 .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
             ],

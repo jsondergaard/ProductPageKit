@@ -382,6 +382,7 @@ struct Simulators: Sendable {
         case .iPhoneDuo: ("iOS", "iPhone", true)
         case .appleTV: ("tvOS", "Apple TV", false)
         case .mac: ("macOS", "Mac", false)
+        default: preconditionFailure("\(kind.name) does not run on a simulator")
         }
     }
 

@@ -104,6 +104,7 @@ struct XcodeBuild: Sendable {
         case .iPhone, .iPad, .iPhoneDuo: "Debug-iphonesimulator"
         case .appleTV: "Debug-appletvsimulator"
         case .mac: "Debug"
+        default: preconditionFailure("\(kind.name) is not built with Xcode")
         }
     }
 }

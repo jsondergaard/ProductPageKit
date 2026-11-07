@@ -256,9 +256,15 @@ actor Review {
             Section(id: "app-review", group: "Copy", title: "App Review", kind: .copy,
                     fields: copy.fields.filter { [Field.reviewNotes, .productReviewNote].contains($0) }.map(\.key)),
         ]
-        let platforms = project.platforms.filter { !$0.shots.isEmpty }
-        if !platforms.isEmpty {
-            sections.append(Section(id: "screenshots", group: "Screenshots", title: "App Store", kind: .screenshots, fields: [],
+        if project.play != nil {
+            sections.insert(Section(id: "play-listing", group: "Copy", title: "Google Play", kind: .copy,
+                                    fields: Field.playListing.map(\.key)), at: 2)
+        }
+        for store in Store.allCases {
+            let platforms = project.platforms(in: store).filter { !$0.shots.isEmpty }
+            guard !platforms.isEmpty else { continue }
+            sections.append(Section(id: store == .appStore ? "screenshots" : "play-screenshots", group: "Screenshots",
+                                    title: store == .appStore ? "App Store" : "Google Play", kind: .screenshots, fields: [],
                                     strips: platforms.map { strip($0.kind, list: .store) }))
         }
         for page in project.customPages {
@@ -415,7 +421,9 @@ actor Review {
 
     /// What App Store Connect shows now, read-only.
     func live() async throws -> [String: [String: String]] {
-        let platform = project.storePlatforms[0]
+        guard let platform = project.storePlatforms.first else {
+            throw Stopped(description: "The project has no App Store platform to compare with")
+        }
         let live = try await LiveCopy(project: project, asc: try session.connect(), platform: platform).read()
         return live.catalog.strings.mapValues { entry in
             (entry.localizations ?? [:]).compactMapValues { $0.stringUnit?.value }

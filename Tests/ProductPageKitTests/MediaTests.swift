@@ -125,7 +125,7 @@ import ProductPageKitTestSupport
     @Test func aFilledSetIsSyncedFromWhatItHoldsWhenTheChangeRuns() async throws {
         let fixture = try Fixture()
         var plan = Plan()
-        plan.syncSets("Story set · en-US", [LocalSet(platform: .iPhone, files: [try localScreenshot("01_home.png", in: fixture)])],
+        plan.syncSets("Story set · en-US", [LocalSet(platform: .iPhone, displayType: "APP_IPHONE_67", files: [try localScreenshot("01_home.png", in: fixture)])],
                       stored: .filled(by: "the control"), owner: ScreenshotSetOwner.treatment, localization: .planned("en-US"))
         #expect(plan.lines == ["  upload  Story set · en-US · iPhone 6.9\"",
                                "            App Store Connect starts it with the control's screenshots",
@@ -161,7 +161,7 @@ import ProductPageKitTestSupport
         let localization = fixture.fake.add("appStoreVersionLocalizations", ["locale": "en-US"],
                                             relationships: ["appStoreVersion": ("appStoreVersions", "ios")])
         var plan = Plan()
-        plan.syncSets("iOS 1.2 · en-US", [LocalSet(platform: .iPhone, files: [try localScreenshot("01_home.png", in: fixture)])],
+        plan.syncSets("iOS 1.2 · en-US", [LocalSet(platform: .iPhone, displayType: "APP_IPHONE_67", files: [try localScreenshot("01_home.png", in: fixture)])],
                       owner: ScreenshotSetOwner.version, localization: .existing(localization))
         let set = fixture.fake.addSet("APP_IPHONE_67", of: ("appStoreVersionLocalization", "appStoreVersionLocalizations", localization),
                                       shots: [("other.png", "o1")])

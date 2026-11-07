@@ -46,7 +46,8 @@ struct CaptureTests {
     var session: (Session, RecordingConsole) {
         let console = RecordingConsole()
         let session = Session(project: Self.project, root: Self.packageRoot, environment: Environment(values: [:]),
-                              console: console, cache: Cache(bundleID: Self.project.bundleID)) {
+                              console: console, cache: Cache(bundleID: Self.project.bundleID),
+                              connectPlay: { throw Stopped(description: "no Google Play in capture tests") }) {
             throw Stopped(description: "no App Store Connect in capture tests")
         }
         return (session, console)
@@ -155,7 +156,8 @@ struct CaptureTests {
         }
         try copy.write(root: root)
         let session = Session(project: project, root: root, environment: Environment(values: [:]), console: RecordingConsole(),
-                              cache: Cache(bundleID: project.bundleID)) {
+                              cache: Cache(bundleID: project.bundleID),
+                              connectPlay: { throw Stopped(description: "no Google Play in capture tests") }) {
             throw Stopped(description: "no App Store Connect in capture tests")
         }
         let framed = try await Commands.frameScreenshots(session, platforms: project.platforms, locales: project.locales)
@@ -277,7 +279,8 @@ struct CaptureTests {
         project.renders = []
         let console = RecordingConsole()
         let session = Session(project: project, root: Self.packageRoot, environment: Environment(values: [:]),
-                              console: console, cache: Cache(bundleID: project.bundleID)) {
+                              console: console, cache: Cache(bundleID: project.bundleID),
+                              connectPlay: { throw Stopped(description: "no Google Play in capture tests") }) {
             throw Stopped(description: "no App Store Connect in capture tests")
         }
         let report = try #require(try await Commands.captureScreenshots(session, platforms: "duo", locales: "en", shots: "",
@@ -344,7 +347,8 @@ struct CaptureTests {
         let console = RecordingConsole()
         let session = Session(project: CaptureTests.project, root: CaptureTests.packageRoot, environment: Environment(values: [:]),
                               console: console, cache: Cache(bundleID: "com.productpagekit.dry-run",
-                                                             root: FileManager.default.temporaryDirectory)) {
+                                                             root: FileManager.default.temporaryDirectory),
+                              connectPlay: { throw Stopped(description: "no Google Play") }) {
             throw Stopped(description: "no App Store Connect")
         }
         let report = try await Commands.captureScreenshots(session, platforms: "macos", locales: "da", shots: "detail:blue,settings",

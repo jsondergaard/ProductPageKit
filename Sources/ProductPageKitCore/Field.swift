@@ -1,25 +1,33 @@
-/// A piece of App Store copy kept in the store's String Catalog: a field App
-/// Store Connect holds, or a line of a screenshot's or video's caption.
+/// A piece of store copy kept in the String Catalog: a field App Store
+/// Connect or Google Play holds, or a line of a screenshot's or video's
+/// caption.
 ///
-/// The caps are Apple's. App Store Connect enforces them at submission against
-/// the whole update, and the rejection names neither the field nor the locale,
-/// so `metadata check` holds every value to them first.
+/// The caps are the stores'. App Store Connect enforces them at submission
+/// against the whole update, and the rejection names neither the field nor
+/// the locale; Google Play refuses the edit. So `metadata check` holds every
+/// value to them first.
 public struct Field: Hashable, Sendable {
     /// The catalog key.
     public let key: String
     /// What App Store Connect calls it.
     public let title: String
-    /// Apple's cap, or nil for a caption, which is drawn rather than uploaded.
+    /// The store's cap, or nil for a caption, which is drawn rather than
+    /// uploaded.
     public let maxLength: Int?
+    /// The store that holds it and caps it. A caption's is the App Store's,
+    /// whose screenshots most captions are drawn on.
+    public let store: Store
     /// False for fields App Store Connect keeps once, in the primary language.
     public let isTranslatable: Bool
     /// Whether the source language must have a value.
     public let isRequired: Bool
 
-    init(_ key: String, title: String, maxLength: Int?, translatable: Bool = true, required: Bool = true) {
+    init(_ key: String, title: String, maxLength: Int?, store: Store = .appStore, translatable: Bool = true,
+         required: Bool = true) {
         self.key = key
         self.title = title
         self.maxLength = maxLength
+        self.store = store
         isTranslatable = translatable
         isRequired = required
     }
@@ -65,4 +73,13 @@ public struct Field: Hashable, Sendable {
 
     /// The product page's text, in App Store Connect's order.
     public static let listing: [Field] = [.name, .subtitle, .keywords, .promotionalText, .description]
+
+    public static let playTitle = Field("play.title", title: "Google Play title", maxLength: 30, store: .googlePlay)
+    public static let playShortDescription = Field("play.shortDescription", title: "Google Play short description", maxLength: 80,
+                                                   store: .googlePlay)
+    public static let playFullDescription = Field("play.fullDescription", title: "Google Play full description", maxLength: 4000,
+                                                  store: .googlePlay)
+
+    /// The Google Play listing's text, in the Play Console's order.
+    public static let playListing: [Field] = [.playTitle, .playShortDescription, .playFullDescription]
 }

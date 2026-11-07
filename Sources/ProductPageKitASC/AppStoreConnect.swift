@@ -1,6 +1,7 @@
 import Foundation
 import HTTPTypes
 public import OpenAPIRuntime
+public import ProductPageKitHTTP
 import OpenAPIURLSession
 
 /// The App Store Connect API, for one API key.

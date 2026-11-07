@@ -153,6 +153,9 @@ final class ScriptedTerminal: MenuTerminal {
         fixture.project.experiments = [Experiment("pager", name: "Pager test", trafficProportion: 50, treatments: [
             Treatment("pager", name: "Pager", shots: ["home"]),
         ])]
+        fixture.project.platforms.append(.androidPhone(.emulator("phone"), shots: ["home"]))
+        fixture.project.android = AndroidApp(build: [], apk: "app.apk", applicationID: "com.example.app.dev", activity: ".MainActivity")
+        fixture.project.play = GooglePlay(packageName: "com.example.app")
         return fixture
     }
 
@@ -166,7 +169,7 @@ final class ScriptedTerminal: MenuTerminal {
 
     @Test func everyCommandCanBeRunFromTheMenu() {
         let commands = Self.leaves(of: Root.self, in: nil)
-        #expect(commands.count == 22)
+        #expect(commands.count == 25)
         for (path, command) in commands { #expect(command is any Guided.Type, "\(path) has no questions for the menu") }
     }
 
@@ -176,7 +179,7 @@ final class ScriptedTerminal: MenuTerminal {
     @Test func everyCommandAnsweredWithItsDefaultsParsesAsItself() throws {
         let project = try Self.fixture().project
         let commands = Self.leaves(of: Root.self, in: project)
-        #expect(commands.count == 22)
+        #expect(commands.count == 25)
         for (path, command) in commands {
             let terminal = ScriptedTerminal()
             terminal.respond = { screen in
@@ -211,7 +214,7 @@ final class ScriptedTerminal: MenuTerminal {
 
     @Test func someShotsAreTickedFromThePlatformsChosen() throws {
         let project = try Self.fixture().project
-        let terminal = ScriptedTerminal([.down, .space, .enter, .enter, .down, .enter, .down, .space, .enter])
+        let terminal = ScriptedTerminal([.down, .space, .down, .space, .enter, .enter, .down, .enter, .down, .space, .enter])
         let arguments = try ScreenshotsCommand.Capture.arguments(Prompter(terminal: terminal, path: []), project)
         #expect(arguments == ["--platforms", "ios", "--shots", "list"])
         #expect(terminal.screens.last?.dropFirst(4).prefix(2).map(\.text) == ["[ ] home   ", "[x] list   "])
@@ -219,7 +222,8 @@ final class ScriptedTerminal: MenuTerminal {
 
     @Test func exportAsksForPlatformsAndLocalesBeforeTheDirectory() throws {
         let project = try Self.fixture().project
-        let terminal = ScriptedTerminal([.down, .space, .enter, .down, .space, .enter] + ScriptedTerminal.typed("out") + [.enter])
+        let terminal = ScriptedTerminal([.down, .space, .down, .space, .enter, .down, .space, .enter] + ScriptedTerminal.typed("out")
+                                        + [.enter])
         #expect(try ExportCommand.arguments(Prompter(terminal: terminal, path: []), project)
             == ["--platforms", "ios", "--locales", "en", "out"])
     }

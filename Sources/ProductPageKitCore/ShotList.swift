@@ -68,10 +68,12 @@ extension ShotListing {
     }
 
     /// Too many shots, and a shot listed twice, for `owner` to be named in.
-    func shotProblems(owner: String) -> [String] {
+    /// - Parameters:
+    ///   - limit: the shots `store` takes in one set.
+    func shotProblems(owner: String, limit: Int = Platform.Kind.appStoreShots, store: Store = .appStore) -> [String] {
         var problems: [String] = []
-        if shots.count > Platform.maximumShots {
-            problems.append("\(owner) lists \(shots.count) shots, and App Store Connect takes \(Platform.maximumShots)")
+        if shots.count > limit {
+            problems.append("\(owner) lists \(shots.count) shots, and \(store.name) takes \(limit)")
         }
         for shot in shots.repeated {
             problems.append("\(owner) lists \(shot) twice")

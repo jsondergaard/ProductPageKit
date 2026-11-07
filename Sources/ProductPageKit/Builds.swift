@@ -79,7 +79,7 @@ extension Commands {
         let confirmed = plan
         try await cancellingOnInterrupt {
             await shelf.store(try await archiver.archive(platforms, number: number))
-            try await session.apply(confirmed, asc: asc)
+            try await session.apply(confirmed, to: Run(asc: asc))
         }
         console.print("TestFlight offers each build once App Store Connect has processed it; `productpage builds list` shows where it is.")
     }

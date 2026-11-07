@@ -95,10 +95,12 @@ public struct StoreCopy: Sendable {
     }
 
     /// Every field the project has, in the order the review page shows them:
-    /// the listing, What's New newest first, the captions, each custom
-    /// page's promotional text, then the notes for App Review.
+    /// the listing, Google Play's when it publishes there, What's New newest
+    /// first, the captions, each custom page's promotional text, then the
+    /// notes for App Review.
     public var fields: [Field] {
-        var fields = Field.listing + releases.reversed().map(Field.whatsNew) + captionFields
+        var fields = Field.listing + (project.play == nil ? [] : Field.playListing) + releases.reversed().map(Field.whatsNew)
+            + captionFields
             + project.customPages.map(\.promotionalText) + [.reviewNotes]
         if project.products != nil { fields.append(.productReviewNote) }
         return fields
@@ -206,7 +208,7 @@ public struct StoreCopy: Sendable {
                 problems.append(.warning("\(field.key) has \(language), which is not a configured locale"))
             }
             if let maxLength = field.maxLength, unit.value.count > maxLength {
-                problems.append(.error("\(field.key) · \(language): \(unit.value.count) characters, App Store Connect caps \(field.title) at \(maxLength)"))
+                problems.append(.error("\(field.key) · \(language): \(unit.value.count) characters, \(field.store.name) caps \(field.title) at \(maxLength)"))
             }
             if language == source || unit.state == StringCatalog.State.translated.rawValue {
                 for link in project.metadata.requiredLinks[field] ?? [] where !unit.value.contains(link) {

@@ -5,6 +5,7 @@ import OpenAPIRuntime
 import Testing
 @testable import ProductPageKitASC
 import ProductPageKitCore
+import ProductPageKitHTTP
 
 /// Answers each request with the next scripted response and records it.
 final class ScriptedTransport: ClientTransport, @unchecked Sendable {

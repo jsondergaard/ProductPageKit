@@ -51,6 +51,11 @@ public struct Project: Sendable {
     public var products: Products?
     /// TestFlight uploads.
     public var builds: Builds?
+    /// The Android app the Android platforms are captured from.
+    public var android: AndroidApp?
+    /// The Google Play listing, which the Android platforms and graphics
+    /// and the `play.` copy are published to.
+    public var play: GooglePlay?
 
     public init(
         name: String,
@@ -74,7 +79,9 @@ public struct Project: Sendable {
         icon: String? = nil,
         metadata: Metadata,
         products: Products? = nil,
-        builds: Builds? = nil
+        builds: Builds? = nil,
+        android: AndroidApp? = nil,
+        play: GooglePlay? = nil
     ) {
         self.name = name
         self.bundleID = bundleID
@@ -98,6 +105,8 @@ public struct Project: Sendable {
         self.metadata = metadata
         self.products = products
         self.builds = builds
+        self.android = android
+        self.play = play
     }
 
     public var primaryLocale: StoreLocale { locales[0] }
@@ -105,10 +114,15 @@ public struct Project: Sendable {
     /// The App Store platforms the configured devices belong to, in order.
     public var storePlatforms: [StorePlatform] {
         var seen: [StorePlatform] = []
-        for platform in platforms where !seen.contains(platform.storePlatform) {
-            seen.append(platform.storePlatform)
+        for platform in platforms.compactMap(\.storePlatform) where !seen.contains(platform) {
+            seen.append(platform)
         }
         return seen
+    }
+
+    /// The configured platforms whose screenshots go to `store`.
+    public func platforms(in store: Store) -> [Platform] {
+        platforms.filter { $0.store == store }
     }
 
     /// The App Store platforms builds are archived for: those `builds`
@@ -296,17 +310,23 @@ public struct Project: Sendable {
         }
         problems += experiments.flatMap { $0.problems(platforms: platforms, storeShots: storeShots) }
         if let frames {
-            for platform in platforms where !platform.kind.acceptedSizes.contains(frames.canvasSize(for: platform.kind)) {
+            for platform in platforms where !platform.kind.accepts(frames.canvasSize(for: platform.kind)) {
                 let size = frames.canvasSize(for: platform.kind)
-                problems.append("the theme draws \(platform.name) screenshots at \(Int(size.width)) × \(Int(size.height)), which App Store Connect does not take")
+                problems.append("the theme draws \(platform.name) screenshots at \(Int(size.width)) × \(Int(size.height)), which \(platform.store.name) does not take")
             }
         }
+        problems += androidProblems()
         let fileNames = Set(files?.names ?? [])
         for frame in frameSubjects {
             for source in sources(for: frame) {
                 switch source.content {
                 case .capture(_, let platform), .component(_, let platform):
-                    if self.platform(platform) == nil {
+                    if let drawn = self.platform(platform) {
+                        // Without a theme, the graphic's own problem says so.
+                        if case .drawn = drawn.capture, frames != nil {
+                            problems.append("the \(frame.platform.name) \(frame.shot) screenshot draws \(source), and the \(platform.name) is drawn, not captured")
+                        }
+                    } else {
                         problems.append("the \(frame.platform.name) \(frame.shot) screenshot draws \(source), and the \(platform.name) is not a configured platform")
                     }
                 case .file(let name):
@@ -347,6 +367,96 @@ public struct Project: Sendable {
             }
         }
         return problems.sorted()
+    }
+}
+
+extension Project {
+    /// Problems with the Android app, the Google Play listing and the
+    /// platforms they serve.
+    func androidProblems() -> [String] {
+        var problems: [String] = []
+        let playPlatforms = platforms(in: .googlePlay)
+        if play == nil, !playPlatforms.isEmpty {
+            problems.append("the \(playPlatforms.map(\.name).joined(separator: ", ")) \(playPlatforms.count == 1 ? "goes" : "go") to Google Play, and Project.play is not set")
+        }
+        let captured = platforms.filter { if case .android = $0.capture { true } else { false } }
+        if android == nil, !captured.isEmpty {
+            problems.append("the \(captured.map(\.name).joined(separator: ", ")) \(captured.count == 1 ? "is" : "are") captured on Android, and Project.android is not set")
+        }
+        for platform in captured {
+            if !components(on: platform.kind).isEmpty || !renderComponents(on: platform.kind).isEmpty {
+                problems.append("the \(platform.name) exports no components, and something draws one from it")
+            }
+            if !renderTests(on: platform.kind).isEmpty {
+                problems.append("the \(platform.name) runs no tests, and a render asks one for a screen")
+            }
+        }
+        if frames == nil {
+            for platform in platforms {
+                if case .drawn = platform.capture { problems.append("the \(platform.name) is drawn by a theme, and the project has none") }
+            }
+        }
+        if let android {
+            if android.apk.isEmpty { problems.append("Project.android names no APK") }
+            if android.applicationID.isEmpty { problems.append("Project.android names no application id") }
+            if android.activity.isEmpty { problems.append("Project.android names no activity") }
+        }
+        if let play {
+            if play.packageName.isEmpty { problems.append("Project.play names no package") }
+            for locale in locales where locale.playLanguage == nil {
+                problems.append("locale \(locale.code) is App Store Connect's \(locale.store), which has no Google Play language")
+            }
+            let languages = locales.compactMap(\.playLanguage)
+            for language in languages.repeated {
+                let codes = locales.filter { $0.playLanguage == language }.map(\.code)
+                problems.append("locales \(codes.joined(separator: " and ")) are both Google Play's \(language)")
+            }
+        }
+        return problems
+    }
+}
+
+/// The Android app the Android platforms are captured from. A capture
+/// installs the APK, then starts `activity` once for each scene with the
+/// scene's name in the `productPageScene` extra and its variant, if any, in
+/// `productPageVariant`. The app logs `ready <scene>` under the tag
+/// `ProductPage` once the scene is on screen and holds still.
+public struct AndroidApp: Sendable {
+    /// Shell commands run at the repository root that build the APK, such as
+    /// `./gradlew :app:assembleDebug`.
+    public var build: [String]
+    /// The APK they write, relative to the repository root.
+    public var apk: String
+    /// The application id the APK installs as: the debug build's, such as
+    /// `com.example.app.dev`.
+    public var applicationID: String
+    /// The activity started with each scene, as `am start` names it within
+    /// the app: `.MainActivity`, or a whole class name.
+    public var activity: String
+
+    public init(build: [String], apk: String, applicationID: String, activity: String) {
+        self.build = build
+        self.apk = apk
+        self.applicationID = applicationID
+        self.activity = activity
+    }
+
+    /// The component `am start` launches: `com.example.app.dev/.MainActivity`.
+    public var component: String { "\(applicationID)/\(activity)" }
+}
+
+/// The app's Google Play listing.
+public struct GooglePlay: Sendable {
+    /// The listing's package name: the release build's application id.
+    public var packageName: String
+    /// False for a Play Console that sends changes for review only from its
+    /// Publishing overview, which refuses an edit committed any other way;
+    /// a push then leaves the committed changes there to send.
+    public var sendsForReview: Bool
+
+    public init(packageName: String, sendsForReview: Bool = true) {
+        self.packageName = packageName
+        self.sendsForReview = sendsForReview
     }
 }
 

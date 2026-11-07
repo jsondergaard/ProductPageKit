@@ -1,12 +1,14 @@
 # ProductPageKit
 
-ProductPageKit keeps an app's App Store product page in its repository and
-pushes it to App Store Connect from one command-line tool:
+ProductPageKit keeps an app's App Store product page and Google Play listing
+in its repository and pushes them to App Store Connect and Google Play from
+one command-line tool:
 
 - the copy, in an Xcode String Catalog with translation states, and a local
   page for reviewing and editing it
 - screenshots captured from the running app on iPhone, iPad, iPhone Duo, Mac and Apple TV
-  simulators, then framed in the app's own look by Swift code you write
+  simulators and on Android emulators and devices, then framed in the app's
+  own look by Swift code you write
 - the product page header and search result videos, rendered from the same
   captures
 - subscriptions and one-time purchases from a product catalogue, and the
@@ -17,18 +19,24 @@ pushes it to App Store Connect from one command-line tool:
 - App Review screenshots of the in-app purchases
 - TestFlight builds, archived for every platform and uploaded with the same
   API key
+- the Google Play listing's text, screenshots, feature graphic and TV banner
 
 The app decides when a screen is ready, so a capture never waits a fixed
 time. Generated files live in `~/Library/Caches`, and archives in Xcode's
 Archives folder, never in the repository.
-Every command that writes to App Store Connect reads first, prints a plan of
-the changes, asks once, then applies exactly that plan.
+Every command that writes to a store reads first, prints a plan of the
+changes, asks once, then applies exactly that plan.
 
 ## Requirements
 
 - macOS 26 and Xcode 26 (Swift 6.2)
 - Apps on iOS 26, iPadOS 26, tvOS 26 or macOS 26, built with SwiftUI
 - An App Store Connect API key with App Manager access
+- For Google Play: a Google Cloud service account's JSON key, invited in the
+  Play Console under Users and permissions with permission to manage the
+  store presence
+- For Android captures: the Android SDK's platform-tools and emulator, from
+  Android Studio or `$ANDROID_HOME`
 
 ## How it fits together
 
@@ -37,7 +45,7 @@ ProductPageKit ships two libraries:
 | Library | Linked by | Does |
 | --- | --- | --- |
 | `ProductPageKitCapture` | your app, in Debug only | Names the app's screens as scenes, moves between them on request, and says when each is ready. |
-| `ProductPageKit` | a small tools package in your repository | Builds the app, drives simulators and the Mac app, frames and renders, and talks to App Store Connect. |
+| `ProductPageKit` | a small tools package in your repository | Builds the app, drives simulators, the Mac app and Android emulators, frames and renders, and talks to App Store Connect and Google Play. |
 
 `ProductPageKitCapture` compiles to nothing outside `DEBUG`, so a Release
 build carries none of it. The tools package holds your configuration and your
@@ -128,6 +136,13 @@ ASC_KEY_ID=…
 ASC_KEY_PATH=…/AuthKey_XXXXXXXXXX.p8
 ```
 
+For Google Play, `PLAY_KEY_PATH` names the service account's JSON key file,
+or `PLAY_KEY_JSON` holds the key itself, as a CI secret would:
+
+```bash
+PLAY_KEY_PATH=…/play-publisher.json
+```
+
 The App Review account and contact details are read from variables the
 configuration names, and plans never print the password.
 
@@ -166,8 +181,8 @@ WindowGroup {
 }
 ```
 
-`productpage doctor` then checks Xcode, the simulators, Screen Recording and
-the credentials.
+`productpage doctor` then checks Xcode, the simulators, the Android SDK and
+devices, Screen Recording and the credentials.
 
 ## Commands
 
@@ -182,10 +197,10 @@ Outside a terminal, no arguments prints the help.
 
 | Command | Does |
 | --- | --- |
-| `screenshots capture` | Builds the app and captures every platform's shots in every locale, and the App Review screenshots, into the cache. |
+| `screenshots capture` | Builds the apps and captures every platform's shots in every locale, Android's included, and the App Review screenshots, into the cache. |
 | `screenshots frame` | Frames the captures with the project's theme, into the cache. |
 | `screenshots edit` | Serves the theme's layout editor on 127.0.0.1 and opens it in the browser. |
-| `screenshots push` | Frames, then makes each screenshot set hold exactly the framed screenshots, uploading only files App Store Connect does not have. |
+| `screenshots push` | Frames, then makes each App Store screenshot set hold exactly the framed screenshots, uploading only files App Store Connect does not have. |
 | `videos render` | Renders the header and search result videos from the captures, into the cache. |
 | `videos push` | Renders, then uploads changed videos, waits for processing and places them on the editable iOS version. |
 | `pages push` | Frames, then makes each custom product page match: promotional text, keywords and screenshots. Never submits. |
@@ -200,9 +215,12 @@ Outside a terminal, no arguments prints the help.
 | `products storekit` | Writes the StoreKit configuration file from the catalogue. |
 | `builds list` | Lists the builds App Store Connect has, newest first: version, platform, processing state and who can test them. |
 | `builds upload` | Archives every platform as the next build, then uploads each to TestFlight. Never submits for review. |
+| `play metadata push` | Makes each language's Google Play listing text match the catalog's `play.` copy, in one edit. |
+| `play screenshots push` | Frames, then makes each Google Play image slot hold exactly the framed images, in one edit. |
+| `play status` | Shows the tracks' releases, which listings differ from the catalog, and how many images each slot holds. Writes nothing. |
 | `export <dir>` | Copies the framed screenshots, the videos and the renders out of the cache. A custom page's or treatment's screenshots go in a folder of their own. `--platforms` and `--locales` narrow it; videos come only with an iOS platform. |
 | `cache size`, `cache prune` | Shows what the cache holds; deletes the build, its logs, and files nothing points to. |
-| `doctor` | Checks Xcode, the simulators, Screen Recording and the App Store Connect credentials. |
+| `doctor` | Checks Xcode, the simulators, the Android SDK and devices, Screen Recording and both stores' credentials. |
 
 Pushes take `--dry-run` to print the plan and stop, and `--yes` to apply
 without asking; without a terminal, `--yes` is required. Commands that work
@@ -221,7 +239,11 @@ makes them about a fifth of that.
 A locale pairs the catalog's code with App Store Connect's:
 `StoreLocale("nb", store: "no")`. A storefront the app has no localization
 for names the language its screenshots are captured in:
-`StoreLocale("es-MX", store: "es-MX", app: "es-419")`.
+`StoreLocale("es-MX", store: "es-MX", app: "es-419")`. Google Play's
+language for each App Store Connect locale comes from one table:
+`no` is `no-NO`, `es-MX` is `es-419`, `zh-Hans` is `zh-CN`, `he` is `iw-IL`,
+`da` is `da-DK`. A project on Google Play with a locale the table lacks, or
+two locales that are one Google Play language, stops with a problem.
 
 ## Capturing screenshots
 
@@ -285,6 +307,50 @@ comparison.
   scene, still showing the one before. Variants of one scene may match.
 - `-ProductPageScene <name>` opens the app on a scene without a runner, which
   is how UI tests reach a fixture.
+
+### On Android
+
+Android platforms are captured over adb, on an emulator booted without a
+window for the run, or one already running, or a device by its serial:
+
+```swift
+platforms: [
+    .androidPhone(.emulator("Pixel_9"), shots: ["inbox", "detail"]),
+    .androidTablet10(.emulator("Pixel_Tablet"), shots: ["inbox"]),
+    .androidTV(.device("192.168.0.20:5555"), shots: ["home"]),
+    .featureGraphic(),
+    .tvBanner(),
+],
+android: AndroidApp(build: ["./gradlew :app:assembleDebug"], apk: "app/build/outputs/apk/debug/app-debug.apk",
+                    applicationID: "com.example.app.dev", activity: ".MainActivity"),
+play: GooglePlay(packageName: "com.example.app"),
+```
+
+`screenshots capture` runs the `build` commands at the repository root, one
+build on the Mac at a time, installs the APK, and starts `activity` afresh
+for each scene with its name in the `productPageScene` extra and its
+variant, if any, in `productPageVariant`. Once the scene is on screen and
+holds still, the debug build logs `ready <scene>` under the tag
+`ProductPage`:
+
+```kotlin
+val scene = intent.getStringExtra("productPageScene")
+val variant = intent.getStringExtra("productPageVariant")
+// once the scene has drawn
+Log.i("ProductPage", "ready $scene")
+```
+
+The runner then takes frames with `screencap` until two in a row match, as
+on a simulator. The app runs in each locale's `app` language, set for the
+app alone with `cmd locale set-app-locales` (Android 13 or later), in the
+project's appearance and the font scale nearest its text size. Demo mode
+shows 9:41, or the run's start, with a full battery and signal and no
+notifications. The device's night mode, font scale and demo mode are put
+back when the run ends. An Android platform exports no components and runs
+no tests. The ledger keeps a capture while the APK's bytes, the device's
+build, screen size and density, and the project's settings are the ones it
+was taken from. The project's capture files reach the app at
+`127.0.0.1:<port>` through `adb reverse`.
 
 Code that runs at launch reads `Scene.director.launchScene`; anything else
 reads `Scene.director.current`. A view marked `.captureHighlight()` is one a
@@ -362,6 +428,18 @@ takes exactly what the frames and videos list. A `FrameSubject` and a
 `.customPage(key)` or `.treatment(key)`, so a theme can lay out a treatment's
 shots differently from the store's.
 
+Google Play platforms frame the same way, at its sizes: phone and tablet
+screenshots 1080 × 1920, 1920 × 1080 and 2560 × 1440 unless a theme says
+otherwise, any 16:9 or 9:16 size with each side 320 to 3840 pixels
+accepted; TV screenshots 1920 × 1080 or 3840 × 2160; Wear OS's square, 384
+to 3840; the feature graphic 1024 × 500; and the TV banner 1280 × 720. The
+feature graphic and TV banner are captured on nothing: a theme lists in
+`sources(for:)` what each draws from, such as a phone's captures, and each
+has a caption like a screenshot's, under `screenshot.featureGraphic.` and
+`screenshot.tvBanner.` unless named otherwise. Google Play takes a PNG
+without alpha, so its images are written opaque. A
+platform's `bezel` is nil for a graphic.
+
 Frames are cached under a hash of everything drawn into them: the capture,
 its highlights, the caption, the tools executable and the theme's
 `layoutKey(for:)`. Editing a caption redraws that frame only, editing a theme
@@ -414,6 +492,9 @@ it in Xcode to edit every locale side by side, or run `productpage review`.
 | `promotionalText` | Promotional text | 170 |
 | `description` | Description | 4000 |
 | `whatsNew.<version>` | What's New for that version | 4000 |
+| `play.title` | Google Play title | 30 |
+| `play.shortDescription` | Google Play short description | 80 |
+| `play.fullDescription` | Google Play full description | 4000 |
 | `reviewNotes` | App Review notes, not translated | 4000 |
 | `productReviewNote` | Every in-app product's App Review note, not translated | 4000 |
 | `screenshot.<shot>.kicker`, `.headline`, `.subline`, `.checklist` | A screenshot's caption | none |
@@ -431,8 +512,9 @@ caption's checklist holds one item per line, which a theme reads as
 `caption.checklist`. Each key's comment says how to write it, and Xcode and
 the review page show it.
 
-`metadata check` runs offline, so it fits in CI. It checks every value
-against Apple's cap, required links, untranslatable fields, unknown keys,
+The `play.` keys are part of the catalog only for a project with
+`Project.play`. `metadata check` runs offline, so it fits in CI. It checks
+every value against its store's cap, required links, untranslatable fields, unknown keys,
 missing or unreviewed translations, and keywords that repeat each other or
 the name.
 
@@ -451,7 +533,7 @@ lists:
 - Checks: `metadata check`'s results, each linked to its value
 
 The header picks the locale and counts the translations in each that need
-review. Every value shows its character count against Apple's cap, and its
+review. Every value shows its character count against its store's cap, and its
 key's guidance on request. A translation sits beside the source language's
 text, with Approve when it needs review. Comparing with the last commit or
 with App Store Connect marks each value that differs and shows the
@@ -530,6 +612,35 @@ creates an experiment only for an app that has a live iOS version.
 A treatment that leaves a locale or a display type undefined shows the
 control there, while its visitors still count in the treatment's share. With
 `--locales`, a push warns of each locale the treatment does not yet cover.
+
+## Google Play
+
+Every Google Play command works in one edit: a draft of the listing that
+nothing outside the command sees until it is committed. A push reads the
+listing in the edit, prints the plan, asks, makes every change in the
+same edit, and commits it. A dry run, a refused plan, or a change that
+fails deletes the edit, so the listing is either all of the plan or none
+of it. Google Play reviews committed listing changes before they go live.
+A Play Console set to send changes for review only from its Publishing
+overview needs `GooglePlay(packageName:sendsForReview: false)`, and its
+changes then wait there.
+
+`play metadata push` writes the title, short description and full
+description a language's catalog values hold. A changed field is patched
+alone. A new language's listing is created only when all three are
+translated, since Google Play takes no listing without them. Languages
+the listing has and no configured locale maps to are reported, never
+removed.
+
+`play screenshots push` checks each framed image against Google Play's
+rules first: PNG without alpha or JPEG, its slot's size, and up to 8 MB for
+a screenshot. A slot holds up to eight screenshots, or one graphic.
+Google Play shows a slot in upload order and cannot reorder it, so images
+matching the framed files from the start, by SHA-256, are kept, and every
+one from the first difference on is deleted and uploaded again.
+
+`play status` opens an edit to read the tracks, the listings and the image
+slots, prints them beside the catalog, and deletes the edit.
 
 ## Renders
 
@@ -650,16 +761,19 @@ swift test
 ```
 
 Unit tests cover the catalog, validation, the product catalogue, the StoreKit
-file, token signing, the client, the control protocol, the director, the
-capture plan, text layout, and the bezels and a sample theme against golden
-images. After a deliberate change to how something draws,
+file, token signing, both stores' clients, Google Play's languages, limits
+and image rules, the control protocol, the director, the capture plan, text
+layout, and the bezels and a sample theme against golden images. After a deliberate change to how something draws,
 `PRODUCTPAGE_RECORD_GOLDEN=1 swift test` records them again.
 
 Integration tests run every command, and the review server over HTTP,
-against an in-memory App Store Connect. They also capture
+against an in-memory App Store Connect and Google Play. They also capture
 `Fixtures/SampleApp` on iPhone and Apple TV simulators and on the Mac, then
 frame and render it, check that a Release build of the app contains none of
-ProductPageKit, and archive it for the Mac as a numbered build. The Mac capture needs Screen Recording permission for the
+ProductPageKit, and archive it for the Mac as a numbered build. When the Mac
+has an Android Virtual Device, they build `Fixtures/SampleAndroidApp` with
+the SDK's own tools and capture it on the first phone AVD, and on the first
+TV AVD when there is one. The Mac capture needs Screen Recording permission for the
 terminal and the screen unlocked.
 
 An opt-in live test reads a real app and writes nothing:

@@ -4,6 +4,8 @@ import Foundation
 import Testing
 @testable import ProductPageKit
 import ProductPageKitASC
+import ProductPageKitPlay
+import ProductPageKitTestSupport
 
 /// Prints into a list and answers prompts from a queue.
 final class RecordingConsole: Console, @unchecked Sendable {
@@ -41,6 +43,7 @@ final class Fixture {
 
     let root: URL
     let fake: FakeAppStoreConnect
+    let play = FakeGooglePlay()
     var console = RecordingConsole()
     var environment: [String: String] = [
         "DEMO_EMAIL": "review@example.com", "DEMO_CODE": "s3cret-code",
@@ -86,9 +89,9 @@ final class Fixture {
     }
 
     var session: Session {
-        let fake = fake
+        let (fake, play) = (fake, play)
         return Session(project: project, root: root, environment: Environment(values: environment), console: console,
-                       cache: cache) {
+                       cache: cache, connectPlay: { GooglePlayAPI(credentials: FakeGooglePlay.credentials, transport: play) }) {
             AppStoreConnect(credentials: Credentials(issuerID: "issuer", keyID: "KEY", privateKey: P256.Signing.PrivateKey()),
                             transport: fake)
         }

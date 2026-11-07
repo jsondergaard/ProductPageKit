@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import ProductPageKitASC
 import ProductPageKitCore
+import ProductPageKitPlay
 import ProductPageKitRunner
 
 /// The commands, each a thin layer over a function that takes a `Session`, so
@@ -154,6 +155,14 @@ enum Commands {
         } catch {
             checks.append(DoctorCheck(.failed, "App Store Connect credentials: \(error)"))
         }
+        if session.project.play != nil {
+            do {
+                let credentials = try PlayCredentials(environment: session.environment)
+                checks.append(DoctorCheck(.ok, "Google Play credentials are set, for \(credentials.clientEmail)"))
+            } catch {
+                checks.append(DoctorCheck(.failed, "Google Play credentials: \(error)"))
+            }
+        }
         for check in checks {
             session.console.print(check.status.rawValue.padding(toLength: 9, withPad: " ", startingAt: 0) + check.message)
         }
@@ -206,7 +215,7 @@ enum Commands {
     /// Frames, then makes every set hold exactly the framed screenshots.
     static func pushScreenshots(_ session: Session, platforms: String, locales: String, options: WriteOptions) async throws {
         try session.checkProject()
-        let platforms = try session.platforms(platforms)
+        let platforms = try session.platforms(platforms, in: .appStore)
         let locales = try session.locales(locales)
         let report = try await frameScreenshots(session, platforms: platforms, locales: locales, lists: { $0 == .store })
         let asc = try session.connect()
@@ -330,7 +339,7 @@ struct ProductsCommand: AsyncParsableCommand {
 }
 
 struct ScreenshotsCommand: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "screenshots", abstract: "App Store screenshots.",
+    static let configuration = CommandConfiguration(commandName: "screenshots", abstract: "Screenshots for both stores, and the App Store's push.",
                                                     subcommands: [Capture.self, Frame.self, Edit.self, Push.self])
 
     struct Capture: AsyncParsableCommand {
@@ -377,7 +386,7 @@ struct ScreenshotsCommand: AsyncParsableCommand {
 
     struct Push: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Frame, then make each screenshot set hold exactly the framed screenshots, uploading only changed ones."
+            abstract: "Frame, then make each App Store screenshot set hold exactly the framed screenshots, uploading only changed ones."
         )
         @OptionGroup var platforms: PlatformFlag
         @OptionGroup var locales: LocaleFlag
@@ -454,7 +463,7 @@ struct ExperimentsCommand: AsyncParsableCommand {
 struct DoctorCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "doctor",
-        abstract: "Check Xcode, the simulators, Screen Recording and the App Store Connect credentials."
+        abstract: "Check Xcode, the simulators, Android's tools and devices, Screen Recording and the store credentials."
     )
 
     func run() async throws { try await Commands.doctor(try Session.get()) }

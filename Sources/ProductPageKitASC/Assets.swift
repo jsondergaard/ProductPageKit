@@ -259,8 +259,8 @@ extension AppStoreConnect {
             let base = URL(string: "\(scheme)://\(host)")!
             let response: HTTPResponse
             do {
-                (response, _) = try await retry.send(request, body: HTTPBody(chunk)) { [transport] request, body in
-                    try await transport.send(request, body: body, baseURL: base, operationID: "upload")
+                (response, _) = try await retry.send(request.method) { [transport] in
+                    try await transport.send(request, body: HTTPBody(chunk), baseURL: base, operationID: "upload")
                 }
             } catch let error as URLError {
                 throw TransportFailure(method: method.rawValue, path: url.absoluteString, reason: error.localizedDescription)

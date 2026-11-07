@@ -238,7 +238,7 @@ struct Framer {
                                   highlights: highlights, files: files)
             let canvas = Canvas(size: theme.canvasSize(for: subject.platform))
             try theme.render(shot, on: canvas)
-            try output.encode(canvas.image()).write(to: job.screenshot.url, options: .atomic)
+            try output.encode(Self.forStore(canvas.image(), subject.platform)).write(to: job.screenshot.url, options: .atomic)
             return
         }
         guard case .image(let url, _)? = job.sources[.capture(subject.shot, on: subject.platform)] else {
@@ -247,12 +247,19 @@ struct Framer {
         let capture = try Data(contentsOf: url)
         let image = try CGImage.read(capture, from: url)
         let platform = job.screenshot.platform
-        guard platform.kind.acceptedSizes.contains(image.size) else {
+        guard platform.kind.accepts(image.size) else {
             throw Stopped(description: "\(platform.name) \(job.screenshot.name) in \(job.screenshot.locale.code) is "
-                          + "\(image.width) × \(image.height), which App Store Connect does not take. Frame it with a theme, "
+                          + "\(image.width) × \(image.height), which \(platform.store.name) does not take. Frame it with a theme, "
                           + "or capture on a device whose screen is a size it takes.")
         }
-        try (output == .png ? capture : try output.encode(image)).write(to: job.screenshot.url, options: .atomic)
+        let file = output == .png && platform.store == .appStore ? capture : try output.encode(Self.forStore(image, platform.kind))
+        try file.write(to: job.screenshot.url, options: .atomic)
+    }
+
+    /// `image` as `platform`'s store takes it: Google Play refuses a PNG
+    /// with an alpha channel, so its images are made opaque.
+    static func forStore(_ image: CGImage, _ platform: Platform.Kind) -> CGImage {
+        platform.store == .googlePlay ? image.opaque() : image
     }
 }
 

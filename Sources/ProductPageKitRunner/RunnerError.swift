@@ -30,6 +30,12 @@ public enum RunnerError: Error, CustomStringConvertible {
     case componentFailed(String, String)
     case componentWindowOffMac(String)
     case mismatchedBackdrops(String)
+    case noAndroidApp
+    case noAndroidSDK
+    case noAndroidDevice(String)
+    case noAVD(String, available: [String])
+    case emulatorExited(String, log: URL)
+    case noAPK(String)
 
     public var description: String {
         switch self {
@@ -95,6 +101,18 @@ public enum RunnerError: Error, CustomStringConvertible {
             "The app showed the component \(component) in a window, which only a Mac app does."
         case .mismatchedBackdrops(let component):
             "The component \(component) came out a different size over black and over white."
+        case .noAndroidApp:
+            "The project has no Android app to capture from (Project.android)."
+        case .noAndroidSDK:
+            "No Android SDK with platform-tools: set ANDROID_HOME, or install it with Android Studio."
+        case .noAndroidDevice(let serial):
+            "adb has no device \(serial) online."
+        case .noAVD(let name, let available):
+            "There is no Android Virtual Device \(name)." + (available.isEmpty ? "" : " There are \(available.joined(separator: ", ")).")
+        case .emulatorExited(let name, let log):
+            "The emulator \(name) ended before it booted. Its output is in \(log.path)"
+        case .noAPK(let path):
+            "The Android build wrote no APK at \(path)."
         }
     }
 }

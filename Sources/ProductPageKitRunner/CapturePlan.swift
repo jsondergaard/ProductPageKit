@@ -119,10 +119,12 @@ public struct CapturePlan: Sendable {
 
     public init(project: Project, request: CaptureRequest, machine: Machine) throws {
         force = request.force
-        targets = request.platforms.compactMap { platform in
+        // A graphic is drawn from the others' captures, and App Review
+        // screenshots are the App Store's.
+        targets = request.platforms.filter { if case .drawn = $0.capture { false } else { true } }.compactMap { platform in
             let shots = request.shots ?? project.captures(on: platform.kind)
             let components = request.shots == nil ? project.components(on: platform.kind) : []
-            let reviews = request.shots == nil ? project.reviewScreenshots : []
+            let reviews = request.shots == nil && platform.store == .appStore ? project.reviewScreenshots : []
             let renders = Renders(locale: project.primaryLocale, shots: project.renderCaptures(on: platform.kind),
                                   components: project.renderComponents(on: platform.kind), tests: project.renderTests(on: platform.kind))
             let primary = request.shots == nil && request.locales.contains(project.primaryLocale)
@@ -132,7 +134,7 @@ public struct CapturePlan: Sendable {
             // put up, which then joins the locales.
             let testing = !reviews.isEmpty || !(primary?.tests.isEmpty ?? true)
             let workers: Int = switch platform.capture {
-            case .window: 1
+            case .window, .android, .drawn: 1
             case .simulator: max(1, min(request.workers ?? machine.simulators, request.locales.count + (testing ? 1 : 0)))
             }
             return Target(platform: platform, shots: shots, components: components, primary: primary,
@@ -185,6 +187,8 @@ public struct CapturePlan: Sendable {
             case .simulator(.largest): "the largest \(Simulators.describe(target.platform.kind)) simulator"
             case .simulator(.named(let name)): name
             case .window(let size): size.map { "a \(Int($0.width)) × \(Int($0.height)) window" } ?? "a window"
+            case .android(let device): device.description
+            case .drawn: "nothing"
             }
             let workers = target.workers == 1 ? "1 worker" : "\(target.workers) workers"
             var lines = ["\(target.platform.name): \(place), \(workers)"]

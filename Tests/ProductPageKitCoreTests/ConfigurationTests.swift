@@ -39,7 +39,7 @@ import Testing
         let duo = Platform.Kind.iPhoneDuo
         #expect(duo.displayType == "APP_IPHONE_DUO")
         #expect(duo.screenshotSize == CGSize(width: 2853, height: 2007))
-        #expect(duo.acceptedSizes == [CGSize(width: 2853, height: 2007), CGSize(width: 2034, height: 1398),
+        #expect(duo.appStoreSizes == [CGSize(width: 2853, height: 2007), CGSize(width: 2034, height: 1398),
                                       CGSize(width: 2007, height: 2853), CGSize(width: 1398, height: 2034)])
         #expect(duo.bezel == .iPhoneDuo)
     }

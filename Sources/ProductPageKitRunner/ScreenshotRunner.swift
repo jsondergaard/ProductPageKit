@@ -49,6 +49,10 @@ public struct CaptureReport: Sendable {
 ///    variant is exported.
 /// 6. Delete the clones, and raw files and components nothing draws any more.
 ///
+/// Android platforms build first, with `Project.android`'s commands, then
+/// each captures on its own emulator or device beside the rest
+/// (`captureAndroid`).
+///
 /// A capture whose app, device and settings are the same as when it was last
 /// taken is kept (see `CaptureInputs`); `force` takes everything again. A
 /// platform with nothing left to take neither boots a simulator nor launches.
@@ -58,7 +62,7 @@ public struct ScreenshotRunner: Sendable {
     public let project: Project
     public let root: URL
     public let cache: Cache
-    private let log: @Sendable (String) -> Void
+    let log: @Sendable (String) -> Void
 
     public init(project: Project, root: URL, cache: Cache, log: @escaping @Sendable (String) -> Void) {
         self.project = project
@@ -68,9 +72,19 @@ public struct ScreenshotRunner: Sendable {
     }
 
     public func run(_ plan: CapturePlan) async throws -> CaptureReport {
-        guard let xcode = project.xcode else { throw RunnerError.noXcodeProject }
+        let apple = plan.targets.filter { $0.platform.store == .appStore }
+        let android = plan.targets.compactMap { target -> (CapturePlan.Target, AndroidDevice)? in
+            if case .android(let device) = target.platform.capture { (target, device) } else { nil }
+        }
+        let xcode = project.xcode
+        if !apple.isEmpty, xcode == nil { throw RunnerError.noXcodeProject }
+        let androidApp = project.android
+        if !android.isEmpty, androidApp == nil { throw RunnerError.noAndroidApp }
+        let sdk = android.isEmpty ? nil : try AndroidSDK.locate()
         let started = ContinuousClock.now
-        let clock = Self.statusBarTime(project.statusBarTime, startedAt: Date())
+        let startDate = Date()
+        let clock = Self.statusBarTime(project.statusBarTime, startedAt: startDate)
+        let androidClock = Self.androidClock(project.statusBarTime, startedAt: startDate)
         if plan.targets.contains(where: { $0.platform.kind == .mac }) { try await MacCapture.prepare() }
         let locks = try plan.targets.map { try Lock(cache.lock($0.platform), purpose: "capture of \($0.platform.name) screenshots") }
         defer { locks.forEach { $0.release() } }
@@ -83,14 +97,14 @@ public struct ScreenshotRunner: Sendable {
         defer { files?.stop() }
         let simulators = Simulators()
         if plan.targets.contains(where: { $0.platform.isSimulated }) { try await simulators.deleteAbandonedWorkers() }
-        for command in xcode.before {
+        for command in apple.isEmpty ? [] : xcode?.before ?? [] {
             log("Running \(command)")
             _ = try await Shell.run(command, in: root)
         }
-        let build = XcodeBuild(xcode: xcode, root: root, cache: cache, bundleID: project.bundleID, log: log)
         // A platform's workers are what the machine can run at once, so
         // simulator platforms take turns: two at once ran CoreSimulator out
-        // of memory. The next platform builds, and the Mac captures, meanwhile.
+        // of memory. The next platform builds, and the Mac and Android
+        // capture, meanwhile.
         let simulatorTurns = Turns()
         let fingerprints = CaptureFingerprints()
         let capturedFiles = project.files.map { files in files.names.map { cache.files.appending(path: $0) } } ?? []
@@ -99,40 +113,52 @@ public struct ScreenshotRunner: Sendable {
         // simulators install and launch it.
         var builds: [String: URL] = [:]
         var report = try await withThrowingTaskGroup(of: CaptureReport.self) { group in
-            for target in plan.targets {
-                let host = try await Host(target.platform, simulators: simulators)
-                let folder = XcodeBuild.productsFolder(target.platform.kind)
-                let app: URL
-                if let built = builds[folder] {
-                    app = built
-                } else {
-                    let sharing = plan.targets.filter { XcodeBuild.productsFolder($0.platform.kind) == folder }
-                    let names = sharing.map(\.platform.name).joined(separator: " and ")
-                    let building = ContinuousClock.now
-                    log("Building for \(names)")
-                    app = try await build.build(target.platform, destination: host.destination,
-                                                forTesting: sharing.contains { !$0.tests.isEmpty })
-                    log("Built for \(names) in \(Self.format(.now - building))")
-                    builds[folder] = app
-                }
-                let inputs = await fingerprints.inputs(for: target.platform, app: app, device: host.stamp(for: target.platform),
-                                                       project: project, files: capturedFiles, force: plan.force)
-                let pending = pending(in: target, inputs: inputs)
-                guard !pending.locales.isEmpty || !pending.tests.isEmpty else {
-                    log("\(target.platform.name): \(counted(pending.unchanged, "capture")) up to date")
-                    let kept = CaptureReport(unchanged: pending.unchanged)
-                    group.addTask { kept }
-                    continue
-                }
-                let remaining = target.taking(pending.locales)
-                group.addTask {
-                    guard case .simulator = host else {
-                        return try await capture(remaining, pending: pending, app: app, host: host, build: build,
-                                                 simulators: simulators, clock: clock, inputs: inputs)
+            if let androidApp, let sdk {
+                let apk = try await buildAndroid(androidApp)
+                for (target, device) in android {
+                    group.addTask {
+                        try await captureAndroid(target, on: device, app: androidApp, apk: apk, sdk: sdk, clock: androidClock,
+                                                 files: capturedFiles, force: plan.force)
                     }
-                    return try await simulatorTurns.taking {
-                        try await capture(remaining, pending: pending, app: app, host: host, build: build,
-                                          simulators: simulators, clock: clock, inputs: inputs)
+                }
+            }
+            if let xcode {
+                let build = XcodeBuild(xcode: xcode, root: root, cache: cache, bundleID: project.bundleID, log: log)
+                for target in apple {
+                    let host = try await Host(target.platform, simulators: simulators)
+                    let folder = XcodeBuild.productsFolder(target.platform.kind)
+                    let app: URL
+                    if let built = builds[folder] {
+                        app = built
+                    } else {
+                        let sharing = apple.filter { XcodeBuild.productsFolder($0.platform.kind) == folder }
+                        let names = sharing.map(\.platform.name).joined(separator: " and ")
+                        let building = ContinuousClock.now
+                        log("Building for \(names)")
+                        app = try await build.build(target.platform, destination: host.destination,
+                                                    forTesting: sharing.contains { !$0.tests.isEmpty })
+                        log("Built for \(names) in \(Self.format(.now - building))")
+                        builds[folder] = app
+                    }
+                    let inputs = await fingerprints.inputs(for: target.platform, app: app, device: host.stamp(for: target.platform),
+                                                           project: project, files: capturedFiles, force: plan.force)
+                    let pending = pending(in: target, inputs: inputs)
+                    guard !pending.locales.isEmpty || !pending.tests.isEmpty else {
+                        log("\(target.platform.name): \(counted(pending.unchanged, "capture")) up to date")
+                        let kept = CaptureReport(unchanged: pending.unchanged)
+                        group.addTask { kept }
+                        continue
+                    }
+                    let remaining = target.taking(pending.locales)
+                    group.addTask {
+                        guard case .simulator = host else {
+                            return try await capture(remaining, pending: pending, app: app, host: host, build: build,
+                                                     simulators: simulators, clock: clock, inputs: inputs)
+                        }
+                        return try await simulatorTurns.taking {
+                            try await capture(remaining, pending: pending, app: app, host: host, build: build,
+                                              simulators: simulators, clock: clock, inputs: inputs)
+                        }
                     }
                 }
             }
@@ -188,6 +214,8 @@ public struct ScreenshotRunner: Sendable {
                                   os: runtime.platform)
             case .window:
                 self = .mac
+            case .android, .drawn:
+                preconditionFailure("\(platform.name) is not captured on a simulator or the Mac")
             }
         }
 
@@ -404,7 +432,7 @@ public struct ScreenshotRunner: Sendable {
     /// whatever the scene before it left up. Variants of one scene may look
     /// alike. Checked before the capture is stored, so the next run takes it
     /// again.
-    private func checkDistinct(_ frame: Frame, of shot: Shot, in target: CapturePlan.Target, locale: StoreLocale,
+    func checkDistinct(_ frame: Frame, of shot: Shot, in target: CapturePlan.Target, locale: StoreLocale,
                                ledger: CaptureLedger) throws {
         for other in target.shots(in: locale) where other.scene != shot.scene {
             let file = cache.capture(target.platform, locale, other)
@@ -426,7 +454,7 @@ public struct ScreenshotRunner: Sendable {
         var unchanged = 0
     }
 
-    private func pending(in target: CapturePlan.Target, inputs: CaptureInputs) -> Pending {
+    func pending(in target: CapturePlan.Target, inputs: CaptureInputs) -> Pending {
         var pending = Pending()
         for locale in target.locales {
             let ledger = inputs.ledger(in: cache, platform: target.platform, scope: locale.code)
@@ -447,7 +475,7 @@ public struct ScreenshotRunner: Sendable {
     }
 
     /// The shots and components of `locale` not taken under the ledger's inputs.
-    private func stale(in target: CapturePlan.Target, locale: StoreLocale,
+    func stale(in target: CapturePlan.Target, locale: StoreLocale,
                        ledger: CaptureLedger) -> (shots: [Shot], components: [Component]) {
         let shots = target.shots(in: locale).filter { shot in
             let file = cache.capture(target.platform, locale, shot)
@@ -667,13 +695,14 @@ public struct ScreenshotRunner: Sendable {
 }
 
 extension Platform.Kind {
-    /// An iPad's status bar shows the date beside the time; an iPhone's the
-    /// time alone, and an Apple TV has none.
+    /// An iPad's status bar shows the date beside the time; an iPhone's and
+    /// an Android phone's or tablet's the time alone, and a TV, a watch and
+    /// a graphic none.
     var statusBar: StatusBar {
         switch self {
-        case .iPhone, .iPhoneDuo: .time
+        case .iPhone, .iPhoneDuo, .androidPhone, .androidTablet7, .androidTablet10: .time
         case .iPad: .dateAndTime
-        case .appleTV, .mac: .none
+        case .appleTV, .mac, .androidTV, .wear, .featureGraphic, .tvBanner: .none
         }
     }
 }
@@ -688,6 +717,7 @@ extension Platform {
         case .iPhone, .iPad, .iPhoneDuo: .iOS
         case .appleTV: .tvOS
         case .mac: .macOS
+        default: preconditionFailure("\(name) is not driven through the control protocol")
         }
     }
 }

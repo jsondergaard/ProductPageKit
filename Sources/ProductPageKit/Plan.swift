@@ -7,8 +7,9 @@ enum Ref: Hashable, Sendable {
     case planned(String)
 }
 
-/// One write a command will make, described before it is made.
-struct Change: Sendable {
+/// One write a command will make, described before it is made, and made
+/// against `Context`: App Store Connect's `Run`, or a Google Play edit.
+struct WriteChange<Context: Sendable>: Sendable {
     enum Action: String, Sendable {
         case create, update, upload, replace, place
     }
@@ -24,23 +25,27 @@ struct Change: Sendable {
     /// too. One that may not runs alone, after everything before it, so what
     /// it creates exists for what comes after.
     var concurrent = false
-    let perform: @Sendable (Run) async throws -> Void
+    let perform: @Sendable (Context) async throws -> Void
 }
 
 /// Every change a command would make, in order, and what it noticed on the
 /// way that changes nothing but is worth saying.
-struct Plan: Sendable {
-    var changes: [Change] = []
+struct WritePlan<Context: Sendable>: Sendable {
+    var changes: [WriteChange<Context>] = []
     var warnings: [String] = []
 
     mutating func warn(_ message: String) { warnings.append(message) }
 
-    mutating func add(_ change: Change) { changes.append(change) }
+    mutating func add(_ change: WriteChange<Context>) { changes.append(change) }
 
-    static func + (lhs: Plan, rhs: Plan) -> Plan {
-        Plan(changes: lhs.changes + rhs.changes, warnings: lhs.warnings + rhs.warnings)
+    static func + (lhs: WritePlan, rhs: WritePlan) -> WritePlan {
+        WritePlan(changes: lhs.changes + rhs.changes, warnings: lhs.warnings + rhs.warnings)
     }
 }
+
+/// An App Store Connect plan and its changes.
+typealias Plan = WritePlan<Run>
+typealias Change = WriteChange<Run>
 
 /// Applying a plan: the API, and the ids of what earlier changes created.
 actor Run {
@@ -71,7 +76,7 @@ struct DependencyFailed: Error, CustomStringConvertible {
     var description: String { "skipped, because creating \(key) failed" }
 }
 
-extension Plan {
+extension WritePlan {
     /// The plan as the person confirming it reads it.
     var lines: [String] {
         changes.flatMap { change in

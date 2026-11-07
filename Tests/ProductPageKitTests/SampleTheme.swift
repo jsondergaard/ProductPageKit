@@ -35,7 +35,7 @@ struct SampleFrames: FrameTheme {
         let height = width * CGFloat(capture.height) / CGFloat(capture.width)
         let screen = CGRect(x: portrait ? size.width * 0.1 : size.width * 0.4, y: size.height * (portrait ? 0.62 : 0.85) - height,
                             width: width, height: height)
-        let bezel = DeviceBezel(shot.platform.bezel, screen: screen)
+        let bezel = DeviceBezel(shot.platform.bezel!, screen: screen)
         bezel.drawGlow(in: canvas.context, color: .hex(0x4F8AE8))
         bezel.draw(capture, in: canvas.context)
         // Each highlight outlined where it sits on the screen.
@@ -124,7 +124,7 @@ struct SampleStage: MotionStage {
     var deviceGlow: CGColor? { .hex(0x4F8AE8) }
 
     func device(_ platform: Platform.Kind, screen: CGRect) -> any DeviceLook {
-        DeviceBezel(platform.bezel, screen: screen)
+        DeviceBezel(platform.bezel!, screen: screen)
     }
 
     func drawCaption(_ caption: Caption, on canvas: Canvas, locale: StoreLocale) -> CGRect {
