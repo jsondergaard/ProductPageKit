@@ -187,7 +187,9 @@ func playProject(locales: [StoreLocale] = [StoreLocale("en", store: "en-US"), St
         ])
     }
 
-    @Test func anAndroidPlatformExportsNoComponents() {
+    /// An Android platform exports the components a frame or a render
+    /// draws from it, as the others do; it runs no tests.
+    @Test func anAndroidPlatformExportsComponentsAndRunsNoTests() {
         struct Components: FrameTheme {
             func sources(for frame: FrameSubject) -> [FrameSource] {
                 frame.platform == .featureGraphic ? [.component(Component("card"), on: .androidPhone)] : [.capture(frame.shot, on: frame.platform)]
@@ -196,6 +198,32 @@ func playProject(locales: [StoreLocale] = [StoreLocale("en", store: "en-US"), St
         }
         var example = playProject()
         example.frames = Components()
-        #expect(example.problems() == ["the Android phone exports no components, and something draws one from it"])
+        example.renders = [Render("rail", .component(Component("rail", state: "full"), on: .androidPhone))]
+        #expect(example.problems().isEmpty)
+        #expect(example.components(on: .androidPhone) == ["card"])
+        #expect(example.renderComponents(on: .androidPhone) == [Component("rail", state: "full")])
+
+        example.renders.append(Render("share", .test("Tests/testShare", scene: "share", on: .androidPhone)))
+        #expect(example.problems() == ["the Android phone runs no tests, and a render asks one for a screen"])
+    }
+
+    /// A platform may run an app of its own, such as a TV build, in place of
+    /// `Project.android`, which the others still run.
+    @Test func aPlatformCanRunAnAppOfItsOwn() throws {
+        var example = playProject()
+        let tv = AndroidApp(build: ["./gradlew :tv:assembleDebug"], apk: "tv/build/tv-debug.apk", applicationID: "com.example.app.dev",
+                            activity: "com.example.tv.TvActivity")
+        example.platforms.append(.androidTV(.emulator("tv"), shots: ["home"], app: tv))
+        #expect(example.problems().isEmpty)
+        #expect(example.androidApp(for: try #require(example.platform(.androidTV))) == tv)
+        #expect(example.androidApp(for: try #require(example.platform(.androidPhone))) == example.android)
+        #expect(example.androidApp(for: try #require(example.platform(.featureGraphic))) == nil)
+
+        example.android = nil
+        #expect(example.problems() == ["the Android phone is captured on Android, and Project.android is not set"])
+        example.platforms[example.platforms.count - 1] = .androidTV(.emulator("tv"), shots: ["home"],
+                                                                     app: AndroidApp(build: [], apk: "", applicationID: "a", activity: ""))
+        #expect(example.problems().contains("the Android TV's app names no APK"))
+        #expect(example.problems().contains("the Android TV's app names no activity"))
     }
 }

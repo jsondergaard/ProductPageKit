@@ -18,6 +18,7 @@ struct AndroidCaptureTests {
         if let tv = LocalAVDs.tv { platforms.append(.androidTV(.emulator(tv), shots: ["inbox", "settings"])) }
         return Project(
             name: "Sample", bundleID: "com.productpagekit.sample.android", locales: [en, da], appearance: .dark, platforms: platforms,
+            renders: [Render("card@blue", .component(Component("card", state: "blue"), on: .androidPhone))],
             metadata: Metadata(urls: URLs(marketing: "https://example.com", support: "https://example.com/support",
                                           privacy: "https://example.com/privacy"), copyright: "2026 Example"),
             android: AndroidApp(build: ["sh Fixtures/SampleAndroidApp/build.sh .build/sample-android"],
@@ -41,6 +42,7 @@ struct AndroidCaptureTests {
                                                                        force: true, dryRun: false))
         let perLocale = Self.project.platforms.map(\.shots.count).reduce(0, +)
         #expect(first.shots.count == perLocale * 2)
+        #expect(first.components.count == 1)
         let phone = try #require(Self.project.platform(.androidPhone))
         let inbox = try CGImage.read(from: cache.capture(phone, Self.en, "inbox"))
         // The emulator's own screen, whatever its size.
@@ -48,6 +50,9 @@ struct AndroidCaptureTests {
         // The app ran in each locale: Danish names its language on screen.
         let danish = try Data(contentsOf: cache.capture(phone, Self.da, "inbox"))
         #expect(try Data(contentsOf: cache.capture(phone, Self.en, "inbox")) != danish)
+        // The component is the card cut out of the screen it was shown on.
+        let card = try CGImage.read(from: cache.component(phone, Self.en, Component("card", state: "blue")))
+        #expect(card.width == 600 && card.height == 300)
         if let tv = Self.project.platform(.androidTV) {
             let screen = try CGImage.read(from: cache.capture(tv, Self.en, "settings"))
             #expect(screen.width > screen.height)
@@ -56,7 +61,7 @@ struct AndroidCaptureTests {
         let second = try #require(try await Commands.captureScreenshots(session, platforms: "", locales: "", shots: "", workers: nil,
                                                                         force: false, dryRun: false))
         #expect(second.shots.isEmpty)
-        #expect(second.unchanged == perLocale * 2)
+        #expect(second.unchanged == perLocale * 2 + 1)
         #expect(console.output.contains("Everything is up to date"))
     }
 }

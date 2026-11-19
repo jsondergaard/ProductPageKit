@@ -87,7 +87,7 @@ public struct Cache: Sendable {
         switch platform.capture {
         case .simulator, .drawn: directory.appending(path: "locks/\(platform.id).lock")
         case .window: root.appending(path: "locks/\(platform.id).lock")
-        case .android(let device): root.appending(path: "locks/android-\(device.name).lock")
+        case .android(let device, _): root.appending(path: "locks/android-\(device.name).lock")
         }
     }
 }

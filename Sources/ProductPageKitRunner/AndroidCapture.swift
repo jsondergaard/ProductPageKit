@@ -1,25 +1,56 @@
+import CoreGraphics
 import Foundation
 import ProductPageKitCore
 
-/// How the runner and an Android app agree on a scene: the runner starts the
-/// app's activity afresh with the scene in an extra, and the app logs that
-/// it is ready.
+/// How the runner and an Android app agree on a scene or a component: the
+/// runner starts the app's activity afresh with what to show in extras, and
+/// the app logs that it is ready, with the rects of what it marked.
 enum AndroidScene {
     /// Bumped when the agreement changes, which takes every capture again.
-    static let contract = "android scene 1"
+    static let contract = "android scene 2"
     static let sceneExtra = "productPageScene"
     static let variantExtra = "productPageVariant"
+    static let componentExtra = "productPageComponent"
+    static let stateExtra = "productPageComponentState"
     static let logTag = "ProductPage"
 
     /// `am start`'s arguments for `shot`: waiting for the launch, the app
     /// stopped first.
-    static func start(_ shot: Shot, component: String) -> [String] {
-        ["am", "start", "-W", "-S", "-n", component, "--es", sceneExtra, shot.scene]
-            + (shot.variant.map { ["--es", variantExtra, $0] } ?? [])
+    static func start(_ shot: Shot, activity: String) -> [String] {
+        start(activity, [sceneExtra: shot.scene, variantExtra: shot.variant])
     }
 
-    /// What the app logs under `logTag` once `scene` is on screen.
-    static func ready(_ scene: String) -> String { "ready \(scene)" }
+    /// `am start`'s arguments for `component`, in its state and variant.
+    static func start(_ component: Component, activity: String) -> [String] {
+        start(activity, [componentExtra: component.name, stateExtra: component.state, variantExtra: component.variant])
+    }
+
+    private static func start(_ activity: String, _ extras: KeyValuePairs<String, String?>) -> [String] {
+        ["am", "start", "-W", "-S", "-n", activity] + extras.flatMap { key, value in value.map { ["--es", key, $0] } ?? [] }
+    }
+
+    /// What the app's ready line names a scene by: the scene.
+    static func subject(_ shot: Shot) -> String { shot.scene }
+
+    /// What the app's ready line names a component by: its name, and its
+    /// state after `@`.
+    static func subject(_ component: Component) -> String { component.name + (component.state.map { "@\($0)" } ?? "") }
+
+    /// The rects `line` reports when it says `subject` is ready, or nil for
+    /// any other line. The app logs `ready <subject>`, then a rect as
+    /// `left,top,right,bottom` in the screen's pixels for each view it
+    /// marked: a scene's highlights, or a component's own bounds.
+    static func readiness(_ line: some StringProtocol, of subject: String) throws -> [CGRect]? {
+        let words = line.split(whereSeparator: \.isWhitespace)
+        guard words.count >= 2, words[0] == "ready", words[1] == subject else { return nil }
+        return try words.dropFirst(2).map { word in
+            let sides = word.split(separator: ",").compactMap { Int($0) }
+            guard sides.count == 4, sides[2] > sides[0], sides[3] > sides[1] else {
+                throw RunnerError.malformedReady(String(line).trimmingCharacters(in: .whitespaces))
+            }
+            return CGRect(x: sides[0], y: sides[1], width: sides[2] - sides[0], height: sides[3] - sides[1])
+        }
+    }
 
     static let readyTimeout: Duration = .seconds(60)
 }
@@ -47,7 +78,7 @@ extension ScreenshotRunner {
     }
 
     /// One Android platform's captures, every locale in turn on one emulator
-    /// or device, each scene in a launch of its own.
+    /// or device, each scene and component in a launch of its own.
     func captureAndroid(_ target: CapturePlan.Target, on device: AndroidDevice, app: AndroidApp, apk: URL, sdk: AndroidSDK,
                         clock: String, files: [URL], force: Bool) async throws -> CaptureReport {
         let connection = try await AndroidConnection.open(device, sdk: sdk,
@@ -83,18 +114,35 @@ extension ScreenshotRunner {
                 _ = try await connection.shell("cmd locale set-app-locales \(app.applicationID) --locales \(locale.app)")
                 var ledger = inputs.ledger(in: cache, platform: target.platform, scope: locale.code)
                 try FileManager.default.createDirectory(at: cache.raw(target.platform, locale), withIntermediateDirectories: true)
-                for shot in stale(in: target, locale: locale, ledger: ledger).shots {
+                let (shots, components) = stale(in: target, locale: locale, ledger: ledger)
+                for shot in shots {
                     let what = "\(shot) in \(locale.code)"
-                    try await show(shot, app: app, on: connection, describedAs: what)
+                    let highlights = try await show(AndroidScene.start(shot, activity: app.component), subject: AndroidScene.subject(shot),
+                                                    app: app, on: connection, describedAs: what)
                     let frame = try await FrameStability(evidence: cache.logs).settle(what) { try await connection.screencap() }
                     try frame.check(what, on: target.platform)
                     try checkDistinct(frame, of: shot, in: target, locale: locale, ledger: ledger)
                     let file = cache.capture(target.platform, locale, shot)
                     try frame.png.write(to: file, options: .atomic)
-                    try Highlights([]).write(for: file)
+                    try Highlights(highlights.sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }).write(for: file)
                     try ledger.record(CaptureLedger.shotKey(file.lastPathComponent))
                     report.shots.append(file)
                     log("  \(target.platform.id) \(locale.code)  \(file.lastPathComponent)")
+                }
+                for component in components {
+                    let what = "the component \(component) in \(locale.code)"
+                    let rects = try await show(AndroidScene.start(component, activity: app.component),
+                                               subject: AndroidScene.subject(component), app: app, on: connection, describedAs: what)
+                    guard rects.count == 1 else { throw RunnerError.componentBounds(component.description, count: rects.count) }
+                    let frame = try await FrameStability(evidence: cache.logs).settle(what) { try await connection.screencap() }
+                    try frame.check(what, on: target.platform)
+                    guard let crop = try frame.cropped(to: rects[0]) else { throw RunnerError.componentOffScreen(component.description) }
+                    let file = cache.component(target.platform, locale, component)
+                    try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try crop.png.write(to: file, options: .atomic)
+                    try ledger.record(CaptureLedger.componentKey(file.lastPathComponent))
+                    report.components.append(file)
+                    log("  \(target.platform.id) \(locale.code)  \(component.fileName) (component)")
                 }
             }
         } catch {
@@ -105,22 +153,24 @@ extension ScreenshotRunner {
         return report
     }
 
-    /// Starts the app on `shot` and returns once it logs that the scene is
-    /// ready.
-    private func show(_ shot: Shot, app: AndroidApp, on connection: AndroidConnection, describedAs what: String) async throws {
+    /// Starts the app with `start` and returns the rects it reports once it
+    /// logs that `subject` is ready.
+    private func show(_ start: [String], subject: String, app: AndroidApp, on connection: AndroidConnection,
+                      describedAs what: String) async throws -> [CGRect] {
         _ = try await connection.adb(["logcat", "-c"])
-        _ = try await connection.adb(["shell"] + AndroidScene.start(shot, component: app.component))
-        let ready = AndroidScene.ready(shot.scene)
+        _ = try await connection.adb(["shell"] + start)
         let deadline = ContinuousClock.now + AndroidScene.readyTimeout
         while ContinuousClock.now < deadline {
             let logged = try await connection.adb(["logcat", "-d", "-v", "raw", "-s", "\(AndroidScene.logTag):I"])
-            if logged.split(separator: "\n").contains(where: { $0.trimmingCharacters(in: .whitespaces) == ready }) { return }
+            for line in logged.split(separator: "\n") {
+                if let rects = try AndroidScene.readiness(line, of: subject) { return rects }
+            }
             if (try? await connection.shell("pidof \(app.applicationID)"))?.isEmpty ?? true {
                 throw RunnerError.appExited(app.applicationID, before: "it said \(what) was ready")
             }
             try await Task.sleep(for: .milliseconds(250))
         }
-        throw RunnerError.timedOut("\(app.applicationID) to log `\(ready)` under \(AndroidScene.logTag) for \(what)")
+        throw RunnerError.timedOut("\(app.applicationID) to log `ready \(subject)` under \(AndroidScene.logTag) for \(what)")
     }
 
     /// `0941`, or the minute `start` falls in on this Mac's clock, as

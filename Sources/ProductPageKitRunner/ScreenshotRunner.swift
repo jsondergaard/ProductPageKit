@@ -49,9 +49,9 @@ public struct CaptureReport: Sendable {
 ///    variant is exported.
 /// 6. Delete the clones, and raw files and components nothing draws any more.
 ///
-/// Android platforms build first, with `Project.android`'s commands, then
-/// each captures on its own emulator or device beside the rest
-/// (`captureAndroid`).
+/// Android platforms build first, each app once with its commands (the
+/// platform's own or `Project.android`), then each captures on its own
+/// emulator or device beside the rest (`captureAndroid`).
 ///
 /// A capture whose app, device and settings are the same as when it was last
 /// taken is kept (see `CaptureInputs`); `force` takes everything again. A
@@ -73,13 +73,14 @@ public struct ScreenshotRunner: Sendable {
 
     public func run(_ plan: CapturePlan) async throws -> CaptureReport {
         let apple = plan.targets.filter { $0.platform.store == .appStore }
-        let android = plan.targets.compactMap { target -> (CapturePlan.Target, AndroidDevice)? in
-            if case .android(let device) = target.platform.capture { (target, device) } else { nil }
+        var android: [(target: CapturePlan.Target, device: AndroidDevice, app: AndroidApp)] = []
+        for target in plan.targets {
+            guard case .android(let device, _) = target.platform.capture else { continue }
+            guard let app = project.androidApp(for: target.platform) else { throw RunnerError.noAndroidApp }
+            android.append((target, device, app))
         }
         let xcode = project.xcode
         if !apple.isEmpty, xcode == nil { throw RunnerError.noXcodeProject }
-        let androidApp = project.android
-        if !android.isEmpty, androidApp == nil { throw RunnerError.noAndroidApp }
         let sdk = android.isEmpty ? nil : try AndroidSDK.locate()
         let started = ContinuousClock.now
         let startDate = Date()
@@ -113,11 +114,19 @@ public struct ScreenshotRunner: Sendable {
         // simulators install and launch it.
         var builds: [String: URL] = [:]
         var report = try await withThrowingTaskGroup(of: CaptureReport.self) { group in
-            if let androidApp, let sdk {
-                let apk = try await buildAndroid(androidApp)
-                for (target, device) in android {
+            if let sdk {
+                // Each app builds once, however many platforms run it.
+                var apks: [AndroidApp: URL] = [:]
+                for (target, device, app) in android {
+                    let apk: URL
+                    if let built = apks[app] {
+                        apk = built
+                    } else {
+                        apk = try await buildAndroid(app)
+                        apks[app] = apk
+                    }
                     group.addTask {
-                        try await captureAndroid(target, on: device, app: androidApp, apk: apk, sdk: sdk, clock: androidClock,
+                        try await captureAndroid(target, on: device, app: app, apk: apk, sdk: sdk, clock: androidClock,
                                                  files: capturedFiles, force: plan.force)
                     }
                 }

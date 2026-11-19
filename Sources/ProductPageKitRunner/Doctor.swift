@@ -41,7 +41,7 @@ public struct Doctor: Sendable {
             checks.append(await abandonedWorkers(simulators))
         }
         let android = project.platforms.compactMap { platform -> AndroidDevice? in
-            if case .android(let device) = platform.capture { device } else { nil }
+            if case .android(let device, _) = platform.capture { device } else { nil }
         }
         if !android.isEmpty { checks += await androidDevices(Array(Set(android)).sorted { $0.name < $1.name }) }
         if project.platforms.contains(where: { $0.kind == .mac }) {

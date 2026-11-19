@@ -36,6 +36,9 @@ public enum RunnerError: Error, CustomStringConvertible {
     case noAVD(String, available: [String])
     case emulatorExited(String, log: URL)
     case noAPK(String)
+    case malformedReady(String)
+    case componentBounds(String, count: Int)
+    case componentOffScreen(String)
 
     public var description: String {
         switch self {
@@ -113,6 +116,12 @@ public enum RunnerError: Error, CustomStringConvertible {
             "The emulator \(name) ended before it booted. Its output is in \(log.path)"
         case .noAPK(let path):
             "The Android build wrote no APK at \(path)."
+        case .malformedReady(let line):
+            "The app logged `\(line)`, which is not `ready <scene>` followed by rects as left,top,right,bottom in the screen's pixels."
+        case .componentBounds(let component, let count):
+            "The app said the component \(component) was ready with \(count) rects, and it gives exactly one: the component's."
+        case .componentOffScreen(let component):
+            "The app said the component \(component) was ready at a rect off the screen."
         }
     }
 }

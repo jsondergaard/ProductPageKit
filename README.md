@@ -317,7 +317,9 @@ window for the run, or one already running, or a device by its serial:
 platforms: [
     .androidPhone(.emulator("Pixel_9"), shots: ["inbox", "detail"]),
     .androidTablet10(.emulator("Pixel_Tablet"), shots: ["inbox"]),
-    .androidTV(.device("192.168.0.20:5555"), shots: ["home"]),
+    .androidTV(.device("192.168.0.20:5555"), shots: ["home"],
+               app: AndroidApp(build: ["./gradlew :tv:assembleDebug"], apk: "tv/build/outputs/apk/debug/tv-debug.apk",
+                               applicationID: "com.example.app.dev", activity: "com.example.tv.TvActivity")),
     .featureGraphic(),
     .tvBanner(),
 ],
@@ -326,12 +328,16 @@ android: AndroidApp(build: ["./gradlew :app:assembleDebug"], apk: "app/build/out
 play: GooglePlay(packageName: "com.example.app"),
 ```
 
-`screenshots capture` runs the `build` commands at the repository root, one
-build on the Mac at a time, installs the APK, and starts `activity` afresh
-for each scene with its name in the `productPageScene` extra and its
+A platform runs `Project.android`, or an app of its own, such as a TV build
+in an APK of its own. `screenshots capture` runs each app's `build`
+commands at the repository root, once however many platforms run it and
+one build on the Mac at a time, installs the APK, and starts `activity`
+afresh for each scene with its name in the `productPageScene` extra and its
 variant, if any, in `productPageVariant`. Once the scene is on screen and
 holds still, the debug build logs `ready <scene>` under the tag
-`ProductPage`:
+`ProductPage`, followed by the rect of each view a theme may draw attention
+to, such as a card lifted off the screen, as `left,top,right,bottom` in the
+screen's pixels. Those travel with the capture as its highlights.
 
 ```kotlin
 val scene = intent.getStringExtra("productPageScene")
@@ -340,17 +346,31 @@ val variant = intent.getStringExtra("productPageVariant")
 Log.i("ProductPage", "ready $scene")
 ```
 
+A component is cut out of the screen it is shown on. The runner starts
+`activity` with the component's name in `productPageComponent`, its state,
+if any, in `productPageComponentState` and its variant in
+`productPageVariant`; the app shows it in place and logs `ready <name>`, or
+`ready <name>@<state>`, followed by the component's rect. The cut-out is
+opaque, the screen behind it included, where an Apple platform's component
+is drawn on its own over a clear background.
+
+```kotlin
+// once the card has drawn and holds still
+val bounds = card.boundsInWindow()  // the activity fills the screen
+Log.i("ProductPage", "ready plans@yearly ${bounds.left.toInt()},${bounds.top.toInt()},${bounds.right.toInt()},${bounds.bottom.toInt()}")
+```
+
 The runner then takes frames with `screencap` until two in a row match, as
 on a simulator. The app runs in each locale's `app` language, set for the
 app alone with `cmd locale set-app-locales` (Android 13 or later), in the
 project's appearance and the font scale nearest its text size. Demo mode
 shows 9:41, or the run's start, with a full battery and signal and no
 notifications. The device's night mode, font scale and demo mode are put
-back when the run ends. An Android platform exports no components and runs
-no tests. The ledger keeps a capture while the APK's bytes, the device's
-build, screen size and density, and the project's settings are the ones it
-was taken from. The project's capture files reach the app at
-`127.0.0.1:<port>` through `adb reverse`.
+back when the run ends. An Android platform runs no tests. The ledger keeps
+a capture while the APK's bytes, the device's build, screen size and
+density, and the project's settings are the ones it was taken from. The
+project's capture files reach the app at `127.0.0.1:<port>` through
+`adb reverse`.
 
 Code that runs at launch reads `Scene.director.launchScene`; anything else
 reads `Scene.director.current`. A view marked `.captureHighlight()` is one a
@@ -657,7 +677,9 @@ renders: [
 ```
 
 `screenshots capture` takes them in the primary locale beside the store's
-captures. `export` copies them to `renders/<platform>/<name>.png`.
+captures. `export` copies them to `renders/<platform>/<name>.png`, each
+platform under its id: `renders/ios/`, `renders/android/`,
+`renders/androidtv/`.
 
 ## The product catalogue
 

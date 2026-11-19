@@ -167,8 +167,9 @@ public struct Platform: Sendable {
         case simulator(SimulatorDevice)
         /// The Mac app's window, at this content size in points.
         case window(CGSize?)
-        /// An Android emulator or device, driven over adb.
-        case android(AndroidDevice)
+        /// An Android emulator or device, driven over adb, running `app`, or
+        /// `Project.android` when it is nil.
+        case android(AndroidDevice, app: AndroidApp?)
         /// Nothing: a graphic a theme draws from other platforms' captures.
         case drawn
     }
@@ -199,24 +200,24 @@ public struct Platform: Sendable {
         Platform(kind: .mac, shots: shots, capture: .window(window))
     }
 
-    public static func androidPhone(_ device: AndroidDevice, shots: [Shot] = []) -> Platform {
-        Platform(kind: .androidPhone, shots: shots, capture: .android(device))
+    public static func androidPhone(_ device: AndroidDevice, shots: [Shot] = [], app: AndroidApp? = nil) -> Platform {
+        Platform(kind: .androidPhone, shots: shots, capture: .android(device, app: app))
     }
 
-    public static func androidTablet7(_ device: AndroidDevice, shots: [Shot] = []) -> Platform {
-        Platform(kind: .androidTablet7, shots: shots, capture: .android(device))
+    public static func androidTablet7(_ device: AndroidDevice, shots: [Shot] = [], app: AndroidApp? = nil) -> Platform {
+        Platform(kind: .androidTablet7, shots: shots, capture: .android(device, app: app))
     }
 
-    public static func androidTablet10(_ device: AndroidDevice, shots: [Shot] = []) -> Platform {
-        Platform(kind: .androidTablet10, shots: shots, capture: .android(device))
+    public static func androidTablet10(_ device: AndroidDevice, shots: [Shot] = [], app: AndroidApp? = nil) -> Platform {
+        Platform(kind: .androidTablet10, shots: shots, capture: .android(device, app: app))
     }
 
-    public static func androidTV(_ device: AndroidDevice, shots: [Shot] = []) -> Platform {
-        Platform(kind: .androidTV, shots: shots, capture: .android(device))
+    public static func androidTV(_ device: AndroidDevice, shots: [Shot] = [], app: AndroidApp? = nil) -> Platform {
+        Platform(kind: .androidTV, shots: shots, capture: .android(device, app: app))
     }
 
-    public static func wear(_ device: AndroidDevice, shots: [Shot] = []) -> Platform {
-        Platform(kind: .wear, shots: shots, capture: .android(device))
+    public static func wear(_ device: AndroidDevice, shots: [Shot] = [], app: AndroidApp? = nil) -> Platform {
+        Platform(kind: .wear, shots: shots, capture: .android(device, app: app))
     }
 
     /// Google Play's feature graphic, which the theme draws as `shot` from
@@ -246,7 +247,7 @@ public struct Platform: Sendable {
                 problems.append("\(name) has shots and no window size")
             }
         }
-        if case .android(let device) = capture, device.name.isEmpty {
+        if case .android(let device, _) = capture, device.name.isEmpty {
             problems.append("\(name) names no Android emulator or device")
         }
         return problems
@@ -280,7 +281,7 @@ extension Platform.Capture: CustomStringConvertible {
         switch self {
         case .simulator: "on a simulator"
         case .window: "in a Mac window"
-        case .android(let device): "on \(device)"
+        case .android(let device, _): "on \(device)"
         case .drawn: "by a theme alone"
         }
     }

@@ -481,6 +481,22 @@ import ProductPageKitTestSupport
         #expect(fixture.console.output.contains("Exported 12 files to"))
     }
 
+    /// Android's renders, a phone's component and a TV's screen, go under
+    /// each platform's own folder.
+    @Test func exportCopiesAndroidRenders() async throws {
+        let fixture = try Fixture(themes: [.frames])
+        fixture.project.platforms += [.androidPhone(.emulator("phone")), .androidTV(.emulator("tv"))]
+        fixture.project.android = AndroidApp(build: [], apk: "app.apk", applicationID: "com.example.app.dev", activity: ".MainActivity")
+        fixture.project.play = GooglePlay(packageName: "com.example.app")
+        fixture.project.renders = [Render("rail@full", .component(Component("rail", state: "full"), on: .androidPhone)),
+                                   Render("home", .capture("home", on: .androidTV))]
+        try fixture.writeCaptures()
+        let destination = fixture.root.appending(path: "export")
+        try await Commands.export(fixture.session, to: destination.path, platforms: "android,androidtv")
+        let files = try FileManager.default.subpathsOfDirectory(atPath: destination.path).filter { $0.contains(".") }.sorted()
+        #expect(files == ["renders/android/rail@full.png", "renders/androidtv/home.png"])
+    }
+
     /// The flags narrow the screenshots and renders to their platforms and
     /// the screenshots and videos to their locales.
     @Test func exportCopiesOnlyThePlatformsAndLocalesNamed() async throws {

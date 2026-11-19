@@ -58,6 +58,14 @@ struct Frame: @unchecked Sendable {
         png == other.png || PictureMatch().matches(image, other.image)
     }
 
+    /// The part of the frame inside `rect`, in its pixels from its top left,
+    /// clipped to the frame; nil when none of `rect` is on it.
+    func cropped(to rect: CGRect) throws -> Frame? {
+        let inside = rect.integral.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        guard !inside.isEmpty, let part = image.cropping(to: inside) else { return nil }
+        return try Frame(image: part)
+    }
+
     /// Fractions of the frame, as the app reports them, in its pixels.
     func highlights(_ fractions: [CGRect]) -> Highlights {
         let width = CGFloat(image.width), height = CGFloat(image.height)

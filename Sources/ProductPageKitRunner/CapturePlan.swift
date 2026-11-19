@@ -187,7 +187,7 @@ public struct CapturePlan: Sendable {
             case .simulator(.largest): "the largest \(Simulators.describe(target.platform.kind)) simulator"
             case .simulator(.named(let name)): name
             case .window(let size): size.map { "a \(Int($0.width)) × \(Int($0.height)) window" } ?? "a window"
-            case .android(let device): device.description
+            case .android(let device, _): device.description
             case .drawn: "nothing"
             }
             let workers = target.workers == 1 ? "1 worker" : "\(target.workers) workers"

@@ -380,26 +380,21 @@ extension Project {
             problems.append("the \(playPlatforms.map(\.name).joined(separator: ", ")) \(playPlatforms.count == 1 ? "goes" : "go") to Google Play, and Project.play is not set")
         }
         let captured = platforms.filter { if case .android = $0.capture { true } else { false } }
-        if android == nil, !captured.isEmpty {
-            problems.append("the \(captured.map(\.name).joined(separator: ", ")) \(captured.count == 1 ? "is" : "are") captured on Android, and Project.android is not set")
+        let appless = captured.filter { androidApp(for: $0) == nil }
+        if !appless.isEmpty {
+            problems.append("the \(appless.map(\.name).joined(separator: ", ")) \(appless.count == 1 ? "is" : "are") captured on Android, and Project.android is not set")
         }
-        for platform in captured {
-            if !components(on: platform.kind).isEmpty || !renderComponents(on: platform.kind).isEmpty {
-                problems.append("the \(platform.name) exports no components, and something draws one from it")
-            }
-            if !renderTests(on: platform.kind).isEmpty {
-                problems.append("the \(platform.name) runs no tests, and a render asks one for a screen")
-            }
+        for platform in captured where !renderTests(on: platform.kind).isEmpty {
+            problems.append("the \(platform.name) runs no tests, and a render asks one for a screen")
         }
         if frames == nil {
             for platform in platforms {
                 if case .drawn = platform.capture { problems.append("the \(platform.name) is drawn by a theme, and the project has none") }
             }
         }
-        if let android {
-            if android.apk.isEmpty { problems.append("Project.android names no APK") }
-            if android.applicationID.isEmpty { problems.append("Project.android names no application id") }
-            if android.activity.isEmpty { problems.append("Project.android names no activity") }
+        if let android { problems += android.problems(owner: "Project.android") }
+        for platform in captured {
+            if case .android(_, let app?) = platform.capture { problems += app.problems(owner: "the \(platform.name)'s app") }
         }
         if let play {
             if play.packageName.isEmpty { problems.append("Project.play names no package") }
@@ -414,14 +409,24 @@ extension Project {
         }
         return problems
     }
+
+    /// The app `platform` is captured from: its own, or `android`. Nil for a
+    /// platform not captured on Android.
+    public func androidApp(for platform: Platform) -> AndroidApp? {
+        guard case .android(_, let app) = platform.capture else { return nil }
+        return app ?? android
+    }
 }
 
-/// The Android app the Android platforms are captured from. A capture
+/// An Android app the Android platforms are captured from. A capture
 /// installs the APK, then starts `activity` once for each scene with the
 /// scene's name in the `productPageScene` extra and its variant, if any, in
-/// `productPageVariant`. The app logs `ready <scene>` under the tag
-/// `ProductPage` once the scene is on screen and holds still.
-public struct AndroidApp: Sendable {
+/// `productPageVariant`, and once for each component with its name in
+/// `productPageComponent` and its state in `productPageComponentState`. The
+/// app logs `ready <scene>`, or `ready <component>[@<state>]`, under the tag
+/// `ProductPage` once it is on screen and holds still, followed by the rects
+/// of what it marked: a scene's highlights, or the component's bounds.
+public struct AndroidApp: Hashable, Sendable {
     /// Shell commands run at the repository root that build the APK, such as
     /// `./gradlew :app:assembleDebug`.
     public var build: [String]
@@ -443,6 +448,14 @@ public struct AndroidApp: Sendable {
 
     /// The component `am start` launches: `com.example.app.dev/.MainActivity`.
     public var component: String { "\(applicationID)/\(activity)" }
+
+    func problems(owner: String) -> [String] {
+        var problems: [String] = []
+        if apk.isEmpty { problems.append("\(owner) names no APK") }
+        if applicationID.isEmpty { problems.append("\(owner) names no application id") }
+        if activity.isEmpty { problems.append("\(owner) names no activity") }
+        return problems
+    }
 }
 
 /// The app's Google Play listing.
