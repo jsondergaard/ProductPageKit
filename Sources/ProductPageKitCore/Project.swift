@@ -375,7 +375,8 @@ extension Project {
     /// platforms they serve.
     func androidProblems() -> [String] {
         var problems: [String] = []
-        let playPlatforms = platforms(in: .googlePlay)
+        // A platform with no shots is captured for renders alone and lists nothing.
+        let playPlatforms = platforms(in: .googlePlay).filter { !$0.shots.isEmpty }
         if play == nil, !playPlatforms.isEmpty {
             problems.append("the \(playPlatforms.map(\.name).joined(separator: ", ")) \(playPlatforms.count == 1 ? "goes" : "go") to Google Play, and Project.play is not set")
         }

@@ -207,6 +207,18 @@ func playProject(locales: [StoreLocale] = [StoreLocale("en", store: "en-US"), St
         #expect(example.problems() == ["the Android phone runs no tests, and a render asks one for a screen"])
     }
 
+    /// A platform captured for renders alone lists nothing on Google Play,
+    /// so it needs no listing.
+    @Test func renderingNeedsNoGooglePlayListing() {
+        var example = project()
+        example.platforms.append(.androidPhone(.emulator("phone")))
+        example.android = AndroidApp(build: [], apk: "app.apk", applicationID: "com.example.app.dev", activity: ".MainActivity")
+        example.renders = [Render("home", .capture("home", on: .androidPhone))]
+        #expect(example.problems().isEmpty)
+        example.platforms[example.platforms.count - 1].shots = ["home"]
+        #expect(example.problems() == ["the Android phone goes to Google Play, and Project.play is not set"])
+    }
+
     /// A platform may run an app of its own, such as a TV build, in place of
     /// `Project.android`, which the others still run.
     @Test func aPlatformCanRunAnAppOfItsOwn() throws {

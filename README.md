@@ -328,10 +328,11 @@ android: AndroidApp(build: ["./gradlew :app:assembleDebug"], apk: "app/build/out
 play: GooglePlay(packageName: "com.example.app"),
 ```
 
-A platform runs `Project.android`, or an app of its own, such as a TV build
-in an APK of its own. `screenshots capture` runs each app's `build`
-commands at the repository root, once however many platforms run it and
-one build on the Mac at a time, installs the APK, and starts `activity`
+A platform with no shots is captured for renders alone and needs no Google
+Play listing. A platform runs `Project.android`, or an app of its own, such
+as a TV build in an APK of its own. `screenshots capture` runs each app's
+`build` commands at the repository root, once however many platforms run it
+and one build on the Mac at a time, installs the APK, and starts `activity`
 afresh for each scene with its name in the `productPageScene` extra and its
 variant, if any, in `productPageVariant`. Once the scene is on screen and
 holds still, the debug build logs `ready <scene>` under the tag
