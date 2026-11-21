@@ -68,6 +68,7 @@ filter:
     - subscriptionPricePoints_equalizations_getToManyRelated
     - subscriptions_prices_getToManyRelated
     - subscriptionPrices_createInstance
+    - subscriptionPrices_deleteInstance
     - subscriptions_appStoreReviewScreenshot_getToOneRelated
     - subscriptionAppStoreReviewScreenshots_createInstance
     - subscriptionAppStoreReviewScreenshots_updateInstance

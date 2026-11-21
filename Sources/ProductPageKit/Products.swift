@@ -13,6 +13,8 @@ struct ProductsPlanner {
     let reviewNote: String?
     let screenshot: (name: String, data: Data)?
     let asc: AppStoreConnect
+    /// The day prices are read on, and the one a price change follows.
+    var today = Date()
 
     func plan() async throws -> Plan {
         let app = try await asc.app(bundleID: project.bundleID)
@@ -84,20 +86,10 @@ struct ProductsPlanner {
         }
 
         let localizations = try await live.asyncMap { try await asc.inAppPurchaseLocalizations(purchaseID: $0.id) } ?? [:]
-        for (code, text) in purchase.localizations.sorted(by: { $0.key < $1.key }) {
-            guard let locale = storeLocale(code) else { continue }
-            let wantedText = ProductText(name: text.name, description: text.description)
-            if let existing = localizations[locale.store] {
-                let changes = wantedText.changes(from: existing.text)
-                guard !changes.isEmpty else { continue }
-                plan.add(Change(action: .update, subject: "\(subject) · \(locale.store)", fields: changes.fieldChanges(from: existing.text)) { run in
-                    try await run.asc.updateInAppPurchaseLocalization(id: existing.id, changes)
-                })
-            } else {
-                plan.add(Change(action: .create, subject: "\(subject) · \(locale.store)", fields: wantedText.fieldChanges(from: nil)) { run in
-                    try await run.asc.createInAppPurchaseLocalization(purchaseID: try await run.id(ref), locale: locale.store, text: wantedText)
-                })
-            }
+        plan = plan + planLocalizations(subject, purchase.localizations, live: localizations) { run, locale, text in
+            try await run.asc.createInAppPurchaseLocalization(purchaseID: try await run.id(ref), locale: locale, text: text)
+        } update: { run, id, changes in
+            try await run.asc.updateInAppPurchaseLocalization(id: id, changes)
         }
 
         let available = try await live.asyncMap { try await asc.hasInAppPurchaseAvailability(purchaseID: $0.id) } ?? false
@@ -157,6 +149,45 @@ struct ProductsPlanner {
     }
 
     func storeLocale(_ code: String) -> StoreLocale? { project.locale(code) }
+
+    /// A product's text in each catalogue locale, against the newest revision
+    /// App Store Connect has. An approved localization cannot be edited, so
+    /// its new text is a revision App Review approves with the product's next
+    /// submission. One waiting for or in review cannot change until App
+    /// Review is done with it.
+    func planLocalizations(_ subject: String, _ localizations: [String: ProductCatalogue.ProductText],
+                           live: [String: ProductLocalization],
+                           create: @escaping @Sendable (Run, String, ProductText) async throws -> Void,
+                           update: @escaping @Sendable (Run, String, ProductText) async throws -> Void) -> Plan {
+        var plan = Plan()
+        for (code, text) in localizations.sorted(by: { $0.key < $1.key }) {
+            guard let locale = storeLocale(code) else { continue }
+            let wanted = ProductText(name: text.name, description: text.description)
+            let target = "\(subject) · \(locale.store)"
+            guard let existing = live[locale.store] else {
+                plan.add(Change(action: .create, subject: target, fields: wanted.fieldChanges(from: nil)) { run in
+                    try await create(run, locale.store, wanted)
+                })
+                continue
+            }
+            let changes = wanted.changes(from: existing.text)
+            guard !changes.isEmpty else { continue }
+            let fields = changes.fieldChanges(from: existing.text)
+            if existing.isEditable {
+                plan.add(Change(action: .update, subject: target, fields: fields) { run in
+                    try await update(run, existing.id, changes)
+                })
+            } else if existing.isApproved {
+                plan.add(Change(action: .update, subject: target, fields: fields,
+                                lines: ["a revision for App Review; the approved text stays live until it is approved"]) { run in
+                    try await create(run, locale.store, wanted)
+                })
+            } else {
+                plan.warn("\(target) is \(existing.state ?? "locked") in App Store Connect, so its text can change once App Review is done with it")
+            }
+        }
+        return plan
+    }
 
     func planGroup(_ group: ProductCatalogue.SubscriptionGroup, live: SubscriptionGroup?, appID: String,
                    territories: [String]) async throws -> Plan {
@@ -239,20 +270,10 @@ struct ProductsPlanner {
         }
 
         let localizations = try await live.asyncMap { try await asc.subscriptionLocalizations(subscriptionID: $0.id) } ?? [:]
-        for (code, text) in subscription.localizations.sorted(by: { $0.key < $1.key }) {
-            guard let locale = storeLocale(code) else { continue }
-            let wantedText = ProductText(name: text.name, description: text.description)
-            if let existing = localizations[locale.store] {
-                let changes = wantedText.changes(from: existing.text)
-                guard !changes.isEmpty else { continue }
-                plan.add(Change(action: .update, subject: "\(subject) · \(locale.store)", fields: changes.fieldChanges(from: existing.text)) { run in
-                    try await run.asc.updateSubscriptionLocalization(id: existing.id, changes)
-                })
-            } else {
-                plan.add(Change(action: .create, subject: "\(subject) · \(locale.store)", fields: wantedText.fieldChanges(from: nil)) { run in
-                    try await run.asc.createSubscriptionLocalization(subscriptionID: try await run.id(ref), locale: locale.store, text: wantedText)
-                })
-            }
+        plan = plan + planLocalizations(subject, subscription.localizations, live: localizations) { run, locale, text in
+            try await run.asc.createSubscriptionLocalization(subscriptionID: try await run.id(ref), locale: locale, text: text)
+        } update: { run, id, changes in
+            try await run.asc.updateSubscriptionLocalization(id: id, changes)
         }
 
         let available = try await live.asyncMap { try await asc.hasSubscriptionAvailability(subscriptionID: $0.id) } ?? false
@@ -321,16 +342,24 @@ struct ProductsPlanner {
             }
         }
         let wanted = try await Self.wantedPrices(asc, subscriptionID: live.id, price: price, base: base)
-        let current = try await asc.prices(subscriptionID: live.id)
-        let changed = wanted.filter { current[$0.key]?.id != $0.value.id }.sorted { $0.key < $1.key }
+        let current = try await asc.prices(subscriptionID: live.id, today: today)
+        let changed = wanted.filter { current[$0.key]?.latest?.id != $0.value.id }.sorted { $0.key < $1.key }
         guard !changed.isEmpty else { return nil }
+        // An approved subscription's price changes from the earliest day App
+        // Store Connect takes: tomorrow, in UTC.
+        let start = live.isApproved ? AppStoreConnect.day(today.addingTimeInterval(24 * 60 * 60)) : nil
+        var lines = ["\(price) in \(base), equalised elsewhere"]
+        if let start { lines.append("from \(start); a rise leaves existing subscribers on what they pay") }
         // Each territory with what new subscribers pay now and would pay.
-        let lines = changed.map { territory, point in
-            "\(territory): \(current[territory]?.customerPrice ?? "no price") → \(point.customerPrice ?? "?")"
+        lines += changed.map { territory, point in
+            let pending = current[territory]?.next.map { ", replacing \($0.point.customerPrice ?? "?") from \($0.startDate)" } ?? ""
+            return "\(territory): \(current[territory]?.now?.customerPrice ?? "no price") → \(point.customerPrice ?? "?")\(pending)"
         }
-        return Change(action: .update, subject: subject, lines: ["\(price) in \(base), equalised elsewhere"] + lines) { run in
+        return Change(action: .update, subject: subject, lines: lines) { run in
             for (territory, point) in changed {
-                try await run.asc.createSubscriptionPrice(subscriptionID: live.id, pricePointID: point.id, territory: territory)
+                if let pending = current[territory]?.next { try await run.asc.deleteSubscriptionPrice(id: pending.id) }
+                try await run.asc.createSubscriptionPrice(subscriptionID: live.id, pricePointID: point.id, territory: territory,
+                                                          startDate: start)
             }
         }
     }

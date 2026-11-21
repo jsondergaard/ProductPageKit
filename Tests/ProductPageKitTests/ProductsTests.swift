@@ -47,8 +47,9 @@ import ProductPageKitASC
     }
 
     /// A new price shows what new subscribers pay now and would pay in each
-    /// territory. A price kept for existing subscribers, or one that has not
-    /// started, is not what they pay now.
+    /// territory. A price kept for existing subscribers is not what they pay
+    /// now, and a change that has not started counts as the price unless the
+    /// catalogue says otherwise, when it is replaced.
     @Test func aPriceChangeNamesEveryTerritorysPrices() async throws {
         let fixture = try Fixture()
         try await Commands.pushProducts(fixture.session, options: apply)
@@ -58,7 +59,7 @@ import ProductPageKitASC
                                          "subscriptionPricePoint": ("subscriptionPricePoints", "point-\(monthly)-DNK-1")])
         fixture.fake.add("subscriptionPrices", ["startDate": "2099-01-01"],
                          relationships: ["subscription": ("subscriptions", monthly), "territory": ("territories", "GBR"),
-                                         "subscriptionPricePoint": ("subscriptionPricePoints", "point-\(monthly)-GBR-1")])
+                                         "subscriptionPricePoint": ("subscriptionPricePoints", "point-\(monthly)-GBR-0")])
         let unchanged = try fixture.again()
         try await Commands.pushProducts(unchanged.session, options: dryRun)
         #expect(unchanged.console.output.contains("Nothing to change."))
@@ -71,7 +72,96 @@ import ProductPageKitASC
         #expect(output.contains("49.00 in USA, equalised elsewhere"))
         #expect(output.contains("USA: 4.99 → 49.0"))
         #expect(output.contains("DNK: 35.0 → 349.0"))
-        #expect(output.contains("GBR: 4.99 → 49.99"))
+        #expect(output.contains("GBR: 4.99 → 49.99, replacing 4.99 from 2099-01-01"))
+        #expect(!output.contains("a rise leaves existing subscribers"))
+    }
+
+    /// After App Review, a price is a change from tomorrow that leaves
+    /// existing subscribers on what they pay, and pushing again finds it.
+    @Test func anApprovedSubscriptionsPriceChangesFromTomorrow() async throws {
+        let fixture = try Fixture()
+        try await Commands.pushProducts(fixture.session, options: apply)
+        fixture.fake.approveProducts()
+        let monthly = try #require(fixture.fake.all("subscriptions").first).id
+        let initial = Set(fixture.fake.all("subscriptionPrices").map(\.id))
+
+        let dearer = try fixture.again()
+        try dearer.write(try dearer.read("catalogue.json").replacingOccurrences(of: "\"4.99\"", with: "\"49.00\""), to: "catalogue.json")
+        fixture.fake.clearWrites()
+        try await Commands.pushProducts(dearer.session, options: apply)
+        let tomorrow = AppStoreConnect.day(Date().addingTimeInterval(24 * 60 * 60))
+        #expect(dearer.console.output.contains("from \(tomorrow); a rise leaves existing subscribers on what they pay"))
+        let changes = fixture.fake.all("subscriptionPrices").filter { !initial.contains($0.id) }
+        #expect(changes.count == 3)
+        #expect(changes.allSatisfy {
+            $0.relationships["subscription"]?.id == monthly && $0.attributes["startDate"] as? String == tomorrow
+                && $0.attributes["preserveCurrentPrice"] as? Bool == true
+        })
+
+        fixture.fake.clearWrites()
+        let again = try dearer.again()
+        try await Commands.pushProducts(again.session, options: apply)
+        #expect(again.console.output.contains("Nothing to change."))
+        #expect(fixture.fake.writes.isEmpty)
+
+        // A change of mind before tomorrow replaces the scheduled change.
+        let back = try fixture.again()
+        fixture.fake.clearWrites()
+        try await Commands.pushProducts(back.session, options: apply)
+        #expect(back.console.output.contains("USA: 4.99 → 4.99, replacing 49.0 from \(tomorrow)"))
+        #expect(fixture.fake.writes.filter { $0.hasPrefix("DELETE /v1/subscriptionPrices/") }.count == 3)
+        #expect(fixture.fake.all("subscriptionPrices").filter { !initial.contains($0.id) }.allSatisfy {
+            ($0.relationships["subscriptionPricePoint"]?.id ?? "").hasSuffix("-0")
+        })
+    }
+
+    /// App Store Connect does not edit approved text. New text is a revision
+    /// beside it, edited in place until it is submitted; text in review only
+    /// warns.
+    @Test func approvedTextGetsARevision() async throws {
+        let fixture = try Fixture()
+        try await Commands.pushProducts(fixture.session, options: apply)
+        fixture.fake.approveProducts()
+
+        let renamed = try fixture.again()
+        try renamed.write(try renamed.read("catalogue.json")
+            .replacingOccurrences(of: "Every month.", with: "Billed monthly.")
+            .replacingOccurrences(of: "Every alert, for good.", with: "Every alert, once."), to: "catalogue.json")
+        fixture.fake.clearWrites()
+        try await Commands.pushProducts(renamed.session, options: apply)
+        #expect(renamed.console.output.contains("a revision for App Review; the approved text stays live until it is approved"))
+        #expect(fixture.fake.writes.sorted() == ["POST /v1/inAppPurchaseLocalizations", "POST /v1/subscriptionLocalizations"])
+        let monthly = fixture.fake.all("subscriptionLocalizations").filter { $0.attributes["locale"] as? String == "en-US" }
+            .map { "\($0.attributes["state"]!) \($0.attributes["description"]!)" }
+        #expect(monthly.contains("APPROVED Every month."))
+        #expect(monthly.contains("PREPARE_FOR_SUBMISSION Billed monthly."))
+        #expect(fixture.fake.all("inAppPurchaseLocalizations").map { "\($0.attributes["state"]!) \($0.attributes["description"]!)" }
+                == ["APPROVED Every alert, for good.", "PREPARE_FOR_SUBMISSION Every alert, once."])
+
+        let unchanged = try renamed.again()
+        fixture.fake.clearWrites()
+        try await Commands.pushProducts(unchanged.session, options: apply)
+        #expect(fixture.fake.writes.isEmpty)
+
+        let revised = try renamed.again()
+        try revised.write(try revised.read("catalogue.json").replacingOccurrences(of: "Billed monthly.", with: "Paid monthly."),
+                          to: "catalogue.json")
+        fixture.fake.clearWrites()
+        try await Commands.pushProducts(revised.session, options: apply)
+        let revision = try #require(fixture.fake.all("subscriptionLocalizations").first {
+            $0.attributes["state"] as? String == "PREPARE_FOR_SUBMISSION" && $0.attributes["description"] as? String == "Paid monthly."
+        })
+        #expect(fixture.fake.writes == ["PATCH /v1/subscriptionLocalizations/\(revision.id)"])
+
+        fixture.fake.change(revision.id, ["state": "WAITING_FOR_REVIEW"])
+        let waiting = try revised.again()
+        try waiting.write(try waiting.read("catalogue.json").replacingOccurrences(of: "Paid monthly.", with: "Monthly."),
+                          to: "catalogue.json")
+        fixture.fake.clearWrites()
+        try await Commands.pushProducts(waiting.session, options: apply)
+        #expect(waiting.console.output.contains(
+            "warning: com.example.plus.monthly · en-US is WAITING_FOR_REVIEW in App Store Connect, so its text can change once App Review is done with it"))
+        #expect(fixture.fake.writes.isEmpty)
     }
 
     /// Family Sharing a subscription declares is turned on; App Store Connect

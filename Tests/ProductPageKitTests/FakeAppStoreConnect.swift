@@ -1,6 +1,7 @@
 import Foundation
 import HTTPTypes
 import OpenAPIRuntime
+import ProductPageKitASC
 
 /// App Store Connect in memory, at the HTTP level: JSON:API resources, their
 /// relationships, paging two at a time, asset reservations with upload
@@ -411,14 +412,21 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
         }
         if let parentKey = Self.localizationParents[type], let locale = attributes["locale"] as? String {
             let parent = relationships[parentKey]?.id
+            // An approved product localization stays live beside the revision
+            // that replaces it.
             let duplicate = order.compactMap { resources[$0] }.contains {
                 $0.type == type && $0.relationships[parentKey]?.id == parent && $0.attributes["locale"] as? String == locale
+                    && !(Self.productLocalizations.contains(type) && $0.attributes["state"] as? String == "APPROVED")
             }
             if duplicate {
                 return (409, ["errors": [["status": "409", "code": "ENTITY_ERROR.DUPLICATE", "title": "Duplicate",
                                           "detail": "\(locale) already exists."]]])
             }
         }
+        if type == "subscriptionPrices", let refusal = refusePrice(attributes, subscription: relationships["subscription"]?.id) {
+            return refusal
+        }
+        if Self.productLocalizations.contains(type) { attributes["state"] = "PREPARE_FOR_SUBMISSION" }
         let id = newID()
         switch type {
         case "appScreenshots", "subscriptionAppStoreReviewScreenshots", "inAppPurchaseAppStoreReviewScreenshots", "appAssetLibraryVideos":
@@ -564,8 +572,41 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
         return (201, document(json(resources[version]!)))
     }
 
+    private static let productLocalizations: Set<String> = ["subscriptionLocalizations", "inAppPurchaseLocalizations"]
+
+    /// Once App Review approves a subscription its initial price is set, and
+    /// a price is a change from a later day.
+    private func refusePrice(_ attributes: [String: Any], subscription: String?) -> (Int, Any?)? {
+        guard subscription.flatMap({ resources[$0] })?.attributes["state"] as? String == "APPROVED" else { return nil }
+        guard let start = attributes["startDate"] as? String else {
+            return (409, ["errors": [["status": "409", "code": "STATE_ERROR",
+                                      "title": "The request cannot be fulfilled because of the state of another resource.",
+                                      "detail": "Initial price cannot be created again after subscription is approved."]]])
+        }
+        guard start > AppStoreConnect.day(Date()) else {
+            return (409, ["errors": [["status": "409", "code": "ENTITY_ERROR.ATTRIBUTE.INVALID", "title": "startDate is in the past"]]])
+        }
+        return nil
+    }
+
+    /// App Review approves every product and its text.
+    func approveProducts() {
+        lock.withLock {
+            for id in order {
+                guard let type = resources[id]?.type,
+                      ["subscriptions", "inAppPurchases"].contains(type) || Self.productLocalizations.contains(type) else { continue }
+                resources[id]?.attributes["state"] = "APPROVED"
+            }
+        }
+    }
+
     private func update(_ id: String, _ data: [String: Any]) -> (Int, Any?) {
         guard var resource = resources[id] else { return notFound() }
+        if Self.productLocalizations.contains(resource.type), resource.attributes["state"] as? String != "PREPARE_FOR_SUBMISSION" {
+            return (409, ["errors": [["status": "409", "code": "ENTITY_ERROR.ATTRIBUTE.INVALID.UNMODIFIABLE",
+                                      "title": "The provided entity contains a field that can not be modified in the current state",
+                                      "detail": "Cannot edit \(resource.type) when it is in ACTIVE state"]]])
+        }
         for (key, value) in data["attributes"] as? [String: Any] ?? [:] { resource.attributes[key] = value }
         if resource.attributes["uploaded"] as? Bool == true {
             resource.attributes.removeValue(forKey: "uploaded")

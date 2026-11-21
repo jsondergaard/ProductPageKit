@@ -19,6 +19,14 @@ public struct Subscription: Equatable, Sendable {
     public let period: String?
     public let familySharable: Bool
     public let settings: SubscriptionSettings
+    /// App Store Connect's state: `READY_TO_SUBMIT`, `APPROVED` and so on.
+    public let state: String?
+
+    /// Whether App Review has approved it. From then on a price is a change
+    /// on a date, not the initial price.
+    public var isApproved: Bool { state.map(Self.approvedStates.contains) ?? false }
+
+    static let approvedStates: Set<String> = ["APPROVED", "DEVELOPER_REMOVED_FROM_SALE", "REMOVED_FROM_SALE"]
 }
 
 /// What can change on a subscription after it is created.
@@ -60,11 +68,60 @@ public struct ProductText: FieldSet {
     ]
 }
 
+/// An in-app product's text in one locale. App Store Connect never edits an
+/// approved localization: a new one in the same locale is the revision App
+/// Review approves next, and the approved one stays live until then.
+public struct ProductLocalization: Equatable, Sendable {
+    public let id: String
+    public let locale: String
+    public let text: ProductText
+    /// `PREPARE_FOR_SUBMISSION`, `WAITING_FOR_REVIEW`, `IN_REVIEW`,
+    /// `APPROVED` or `REJECTED`.
+    public let state: String?
+
+    public init(id: String, locale: String, text: ProductText, state: String?) {
+        self.id = id
+        self.locale = locale
+        self.text = text
+        self.state = state
+    }
+
+    public var isApproved: Bool { state == "APPROVED" }
+    /// Only a localization not yet submitted takes edits.
+    public var isEditable: Bool { state == nil || state == "PREPARE_FOR_SUBMISSION" }
+
+    /// The newest revision in each locale: one not yet approved over the
+    /// approved one it replaces.
+    static func newest(_ localizations: [ProductLocalization]) -> [String: ProductLocalization] {
+        Dictionary(localizations.map { ($0.locale, $0) }, uniquingKeysWith: { first, second in
+            first.isApproved && !second.isApproved ? second : first
+        })
+    }
+}
+
 /// A price a subscription can be set to, in one territory.
 public struct PricePoint: Equatable, Sendable {
     public let id: String
     public let customerPrice: String?
     public let territory: String?
+}
+
+/// A subscription price in one territory from a date.
+public struct ScheduledPrice: Equatable, Sendable {
+    public let id: String
+    /// `2026-10-15`.
+    public let startDate: String
+    public let point: PricePoint
+}
+
+/// What new subscribers pay in one territory: today, and from a change that
+/// has not started yet.
+public struct TerritoryPrice: Equatable, Sendable {
+    public let now: PricePoint?
+    public let next: ScheduledPrice?
+
+    /// The price new subscribers pay once every scheduled change has started.
+    public var latest: PricePoint? { next?.point ?? now }
 }
 
 /// A subscription's introductory offer in one territory.
@@ -157,7 +214,8 @@ extension AppStoreConnect {
                     period: attributes.subscriptionPeriod.flatMap { period in Self.periods.first { $0.value == period }?.key },
                     familySharable: attributes.familySharable ?? false,
                     settings: SubscriptionSettings(referenceName: attributes.name, level: attributes.groupLevel,
-                                                   reviewNote: attributes.reviewNote)
+                                                   reviewNote: attributes.reviewNote),
+                    state: attributes.state
                 )
             }, page.links.next)
         }
@@ -192,16 +250,17 @@ extension AppStoreConnect {
         }
     }
 
-    public func subscriptionLocalizations(subscriptionID: String) async throws -> [String: Localized<ProductText>] {
-        let localizations = try await all { cursor in
+    /// The newest revision in each locale.
+    public func subscriptionLocalizations(subscriptionID: String) async throws -> [String: ProductLocalization] {
+        ProductLocalization.newest(try await all { cursor in
             let page = try await client.subscriptionsSubscriptionLocalizationsGetToManyRelated(.init(path: .init(id: subscriptionID), query: .init(limit: 50, cursor: cursor))).ok.body.json
-            return (page.data.compactMap { localization -> Localized<ProductText>? in
+            return (page.data.compactMap { localization -> ProductLocalization? in
                 guard let attributes = localization.attributes, let locale = attributes.locale else { return nil }
-                return Localized(id: localization.id, locale: locale,
-                                 text: ProductText(name: attributes.name, description: attributes.description))
+                return ProductLocalization(id: localization.id, locale: locale,
+                                           text: ProductText(name: attributes.name, description: attributes.description),
+                                           state: attributes.state)
             }, page.links.next)
-        }
-        return Dictionary(localizations.map { ($0.locale, $0) }, uniquingKeysWith: { first, _ in first })
+        })
     }
 
     public func createSubscriptionLocalization(subscriptionID: String, locale: String, text: ProductText) async throws {
@@ -284,12 +343,16 @@ extension AppStoreConnect {
         }
     }
 
-    /// The upfront price new subscribers pay today in each territory, by
-    /// territory id: the latest that has started, leaving out the prices kept
-    /// for existing subscribers.
-    public func prices(subscriptionID: String, today: Date = Date()) async throws -> [String: PricePoint] {
-        // App Store Connect's dates: `2026-10-15`.
-        let day = today.formatted(Date.ISO8601FormatStyle(timeZone: .gmt).year().month().day())
+    /// App Store Connect's date for a day: `2026-10-15`.
+    public static func day(_ date: Date) -> String {
+        date.formatted(Date.ISO8601FormatStyle(timeZone: .gmt).year().month().day())
+    }
+
+    /// The upfront price new subscribers pay in each territory, by territory
+    /// id: the latest that has started, and the latest that has not. Prices
+    /// kept for existing subscribers are left out.
+    public func prices(subscriptionID: String, today: Date = Date()) async throws -> [String: TerritoryPrice] {
+        let day = Self.day(today)
         let prices = try await all { cursor in
             let page = try await client.subscriptionsPricesGetToManyRelated(.init(
                 path: .init(id: subscriptionID),
@@ -299,28 +362,31 @@ extension AppStoreConnect {
                 guard case .subscriptionPricePoints(let point) = included else { return nil }
                 return (point.id, point.attributes?.customerPrice)
             }, uniquingKeysWith: { first, _ in first })
-            return (page.data.compactMap { price -> (start: String, point: PricePoint)? in
+            return (page.data.compactMap { price -> ScheduledPrice? in
                 guard price.attributes?.planType ?? Self.upfront == Self.upfront, price.attributes?.preserved != true,
                       let territory = price.relationships?.territory?.data?.id,
                       let point = price.relationships?.subscriptionPricePoint?.data?.id
                 else { return nil }
-                return (price.attributes?.startDate ?? "", PricePoint(id: point, customerPrice: customerPrices[point] ?? nil,
-                                                                     territory: territory))
+                return ScheduledPrice(id: price.id, startDate: price.attributes?.startDate ?? "",
+                                      point: PricePoint(id: point, customerPrice: customerPrices[point] ?? nil, territory: territory))
             }, page.links.next)
         }
-        var current: [String: (start: String, point: PricePoint)] = [:]
-        for price in prices where price.start <= day {
-            guard let territory = price.point.territory else { continue }
-            if let known = current[territory], known.start >= price.start { continue }
-            current[territory] = price
+        let latest = { (prices: [ScheduledPrice]) in prices.max { $0.startDate < $1.startDate } }
+        return Dictionary(grouping: prices) { $0.point.territory ?? "" }.mapValues { prices in
+            TerritoryPrice(now: latest(prices.filter { $0.startDate <= day })?.point,
+                           next: latest(prices.filter { $0.startDate > day }))
         }
-        return current.mapValues(\.point)
     }
 
-    public func createSubscriptionPrice(subscriptionID: String, pricePointID: String, territory: String) async throws {
+    /// Sets the upfront price in `territory`. Without a start date it is the
+    /// initial price, which App Store Connect takes only until App Review
+    /// approves the subscription; from then on a price is a change from a
+    /// later day, and a rise leaves existing subscribers on what they pay.
+    public func createSubscriptionPrice(subscriptionID: String, pricePointID: String, territory: String,
+                                        startDate: String? = nil) async throws {
         _ = try await call {
             try await client.subscriptionPricesCreateInstance(.init(body: .json(.init(data: .init(
-                attributes: .init(planType: Self.upfront, preserveCurrentPrice: false),
+                attributes: .init(planType: Self.upfront, preserveCurrentPrice: startDate != nil, startDate: startDate),
                 relationships: .init(
                     subscription: .init(data: .init(id: subscriptionID, _type: .subscriptions)),
                     subscriptionPricePoint: .init(data: .init(id: pricePointID, _type: .subscriptionPricePoints)),
@@ -328,6 +394,13 @@ extension AppStoreConnect {
                 ),
                 _type: .subscriptionPrices
             ))))).created
+        }
+    }
+
+    /// Cancels a price change that has not started.
+    public func deleteSubscriptionPrice(id: String) async throws {
+        _ = try await call {
+            try await client.subscriptionPricesDeleteInstance(.init(path: .init(id: id))).noContent
         }
     }
 

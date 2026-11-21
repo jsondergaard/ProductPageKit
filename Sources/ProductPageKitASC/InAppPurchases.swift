@@ -65,15 +65,17 @@ extension AppStoreConnect {
         }
     }
 
-    public func inAppPurchaseLocalizations(purchaseID: String) async throws -> [String: Localized<ProductText>] {
-        let localizations = try await all { cursor in
+    /// The newest revision in each locale.
+    public func inAppPurchaseLocalizations(purchaseID: String) async throws -> [String: ProductLocalization] {
+        ProductLocalization.newest(try await all { cursor in
             let page = try await client.inAppPurchasesV2InAppPurchaseLocalizationsGetToManyRelated(.init(path: .init(id: purchaseID), query: .init(limit: 50, cursor: cursor))).ok.body.json
-            return (page.data.compactMap { localization -> Localized<ProductText>? in
+            return (page.data.compactMap { localization -> ProductLocalization? in
                 guard let attributes = localization.attributes, let locale = attributes.locale else { return nil }
-                return Localized(id: localization.id, locale: locale, text: ProductText(name: attributes.name, description: attributes.description))
+                return ProductLocalization(id: localization.id, locale: locale,
+                                           text: ProductText(name: attributes.name, description: attributes.description),
+                                           state: attributes.state)
             }, page.links.next)
-        }
-        return Dictionary(localizations.map { ($0.locale, $0) }, uniquingKeysWith: { first, _ in first })
+        })
     }
 
     public func createInAppPurchaseLocalization(purchaseID: String, locale: String, text: ProductText) async throws {
