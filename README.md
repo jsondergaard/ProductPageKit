@@ -211,7 +211,7 @@ Outside a terminal, no arguments prints the help.
 | `release new <version>` | Adds What's New for a version, empty in every locale. |
 | `review` | Opens the copy, screenshots and videos in the browser for reviewing and editing. |
 | `products check` | Checks the product catalogue. |
-| `products push` | Makes the in-app products match the catalogue: groups, subscriptions, one-time purchases, names, availability, prices, free trials, App Review screenshots and server notification URLs. Once App Review has approved a product, new text is a revision App Review approves with its next submission, and a subscription price is a change from tomorrow that leaves existing subscribers on what they pay. |
+| `products push` | Makes the in-app products match the catalogue: groups, subscriptions, one-time purchases, names, availability, prices, free trials, App Review screenshots and server notification URLs. Once App Review has approved a product, new text is a revision App Review approves with its next submission, and a subscription price is a change from two days on that leaves existing subscribers on what they pay. |
 | `products storekit` | Writes the StoreKit configuration file from the catalogue. |
 | `builds list` | Lists the builds App Store Connect has, newest first: version, platform, processing state and who can test them. |
 | `builds upload` | Archives every platform as the next build, then uploads each to TestFlight. Never submits for review. |

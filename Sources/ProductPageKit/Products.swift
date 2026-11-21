@@ -86,7 +86,9 @@ struct ProductsPlanner {
         }
 
         let localizations = try await live.asyncMap { try await asc.inAppPurchaseLocalizations(purchaseID: $0.id) } ?? [:]
-        plan = plan + planLocalizations(subject, purchase.localizations, live: localizations) { run, locale, text in
+        plan = plan + planLocalizations(subject, purchase.localizations, live: localizations) { run in
+            try await run.asc.inAppPurchaseLocalizations(purchaseID: try await run.id(ref))
+        } create: { run, locale, text in
             try await run.asc.createInAppPurchaseLocalization(purchaseID: try await run.id(ref), locale: locale, text: text)
         } update: { run, id, changes in
             try await run.asc.updateInAppPurchaseLocalization(id: id, changes)
@@ -155,8 +157,14 @@ struct ProductsPlanner {
     /// its new text is a revision App Review approves with the product's next
     /// submission. One waiting for or in review cannot change until App
     /// Review is done with it.
+    ///
+    /// The first revision makes App Store Connect copy every other approved
+    /// locale into a draft, which refuses a second localization in its
+    /// locale, so a revision is written to the locale's draft when one exists
+    /// by the time it is applied.
     func planLocalizations(_ subject: String, _ localizations: [String: ProductCatalogue.ProductText],
                            live: [String: ProductLocalization],
+                           fetch: @escaping @Sendable (Run) async throws -> [String: ProductLocalization],
                            create: @escaping @Sendable (Run, String, ProductText) async throws -> Void,
                            update: @escaping @Sendable (Run, String, ProductText) async throws -> Void) -> Plan {
         var plan = Plan()
@@ -180,7 +188,11 @@ struct ProductsPlanner {
             } else if existing.isApproved {
                 plan.add(Change(action: .update, subject: target, fields: fields,
                                 lines: ["a revision for App Review; the approved text stays live until it is approved"]) { run in
-                    try await create(run, locale.store, wanted)
+                    if let draft = try await fetch(run)[locale.store], draft.isEditable {
+                        try await update(run, draft.id, wanted.changes(from: draft.text))
+                    } else {
+                        try await create(run, locale.store, wanted)
+                    }
                 })
             } else {
                 plan.warn("\(target) is \(existing.state ?? "locked") in App Store Connect, so its text can change once App Review is done with it")
@@ -270,7 +282,9 @@ struct ProductsPlanner {
         }
 
         let localizations = try await live.asyncMap { try await asc.subscriptionLocalizations(subscriptionID: $0.id) } ?? [:]
-        plan = plan + planLocalizations(subject, subscription.localizations, live: localizations) { run, locale, text in
+        plan = plan + planLocalizations(subject, subscription.localizations, live: localizations) { run in
+            try await run.asc.subscriptionLocalizations(subscriptionID: try await run.id(ref))
+        } create: { run, locale, text in
             try await run.asc.createSubscriptionLocalization(subscriptionID: try await run.id(ref), locale: locale, text: text)
         } update: { run, id, changes in
             try await run.asc.updateSubscriptionLocalization(id: id, changes)
@@ -346,8 +360,8 @@ struct ProductsPlanner {
         let changed = wanted.filter { current[$0.key]?.latest?.id != $0.value.id }.sorted { $0.key < $1.key }
         guard !changed.isEmpty else { return nil }
         // An approved subscription's price changes from the earliest day App
-        // Store Connect takes: tomorrow, in UTC.
-        let start = live.isApproved ? AppStoreConnect.day(today.addingTimeInterval(24 * 60 * 60)) : nil
+        // Store Connect takes: two days on, in UTC.
+        let start = live.isApproved ? AppStoreConnect.day(today.addingTimeInterval(2 * 24 * 60 * 60)) : nil
         var lines = ["\(price) in \(base), equalised elsewhere"]
         if let start { lines.append("from \(start); a rise leaves existing subscribers on what they pay") }
         // Each territory with what new subscribers pay now and would pay.

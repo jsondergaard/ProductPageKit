@@ -426,7 +426,10 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
         if type == "subscriptionPrices", let refusal = refusePrice(attributes, subscription: relationships["subscription"]?.id) {
             return refusal
         }
-        if Self.productLocalizations.contains(type) { attributes["state"] = "PREPARE_FOR_SUBMISSION" }
+        if Self.productLocalizations.contains(type), let parentKey = Self.localizationParents[type] {
+            attributes["state"] = "PREPARE_FOR_SUBMISSION"
+            copyApprovedLocalizations(type, parentKey: parentKey, parent: relationships[parentKey], except: attributes["locale"] as? String)
+        }
         let id = newID()
         switch type {
         case "appScreenshots", "subscriptionAppStoreReviewScreenshots", "inAppPurchaseAppStoreReviewScreenshots", "appAssetLibraryVideos":
@@ -583,10 +586,27 @@ final class FakeAppStoreConnect: ClientTransport, @unchecked Sendable {
                                       "title": "The request cannot be fulfilled because of the state of another resource.",
                                       "detail": "Initial price cannot be created again after subscription is approved."]]])
         }
-        guard start > AppStoreConnect.day(Date()) else {
-            return (409, ["errors": [["status": "409", "code": "ENTITY_ERROR.ATTRIBUTE.INVALID", "title": "startDate is in the past"]]])
+        let earliest = AppStoreConnect.day(Date().addingTimeInterval(2 * 24 * 60 * 60))
+        guard start >= earliest else {
+            return (409, ["errors": [["status": "409", "code": "ENTITY_ERROR.RELATIONSHIP.INVALID",
+                                      "title": "Invalid startDate=\(start), a future date is expected, and must be on or after \(earliest)"]]])
         }
         return nil
+    }
+
+    /// A product's first revision starts a draft of every other approved
+    /// locale, each a copy of the approved text.
+    private func copyApprovedLocalizations(_ type: String, parentKey: String, parent: (type: String, id: String)?, except locale: String?) {
+        guard let parent else { return }
+        let siblings = order.compactMap { resources[$0] }.filter { $0.type == type && $0.relationships[parentKey]?.id == parent.id }
+        guard !siblings.isEmpty, siblings.allSatisfy({ $0.attributes["state"] as? String == "APPROVED" }) else { return }
+        for approved in siblings where approved.attributes["locale"] as? String != locale {
+            let id = newID()
+            var attributes = approved.attributes
+            attributes["state"] = "PREPARE_FOR_SUBMISSION"
+            resources[id] = Resource(type: type, id: id, attributes: attributes, relationships: [parentKey: parent])
+            order.append(id)
+        }
     }
 
     /// App Review approves every product and its text.

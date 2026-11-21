@@ -76,9 +76,9 @@ import ProductPageKitASC
         #expect(!output.contains("a rise leaves existing subscribers"))
     }
 
-    /// After App Review, a price is a change from tomorrow that leaves
+    /// After App Review, a price is a change from two days on that leaves
     /// existing subscribers on what they pay, and pushing again finds it.
-    @Test func anApprovedSubscriptionsPriceChangesFromTomorrow() async throws {
+    @Test func anApprovedSubscriptionsPriceChangesTwoDaysOn() async throws {
         let fixture = try Fixture()
         try await Commands.pushProducts(fixture.session, options: apply)
         fixture.fake.approveProducts()
@@ -89,12 +89,12 @@ import ProductPageKitASC
         try dearer.write(try dearer.read("catalogue.json").replacingOccurrences(of: "\"4.99\"", with: "\"49.00\""), to: "catalogue.json")
         fixture.fake.clearWrites()
         try await Commands.pushProducts(dearer.session, options: apply)
-        let tomorrow = AppStoreConnect.day(Date().addingTimeInterval(24 * 60 * 60))
-        #expect(dearer.console.output.contains("from \(tomorrow); a rise leaves existing subscribers on what they pay"))
+        let start = AppStoreConnect.day(Date().addingTimeInterval(2 * 24 * 60 * 60))
+        #expect(dearer.console.output.contains("from \(start); a rise leaves existing subscribers on what they pay"))
         let changes = fixture.fake.all("subscriptionPrices").filter { !initial.contains($0.id) }
         #expect(changes.count == 3)
         #expect(changes.allSatisfy {
-            $0.relationships["subscription"]?.id == monthly && $0.attributes["startDate"] as? String == tomorrow
+            $0.relationships["subscription"]?.id == monthly && $0.attributes["startDate"] as? String == start
                 && $0.attributes["preserveCurrentPrice"] as? Bool == true
         })
 
@@ -104,11 +104,11 @@ import ProductPageKitASC
         #expect(again.console.output.contains("Nothing to change."))
         #expect(fixture.fake.writes.isEmpty)
 
-        // A change of mind before tomorrow replaces the scheduled change.
+        // A change of mind before then replaces the scheduled change.
         let back = try fixture.again()
         fixture.fake.clearWrites()
         try await Commands.pushProducts(back.session, options: apply)
-        #expect(back.console.output.contains("USA: 4.99 → 4.99, replacing 49.0 from \(tomorrow)"))
+        #expect(back.console.output.contains("USA: 4.99 → 4.99, replacing 49.0 from \(start)"))
         #expect(fixture.fake.writes.filter { $0.hasPrefix("DELETE /v1/subscriptionPrices/") }.count == 3)
         #expect(fixture.fake.all("subscriptionPrices").filter { !initial.contains($0.id) }.allSatisfy {
             ($0.relationships["subscriptionPricePoint"]?.id ?? "").hasSuffix("-0")
@@ -126,11 +126,22 @@ import ProductPageKitASC
         let renamed = try fixture.again()
         try renamed.write(try renamed.read("catalogue.json")
             .replacingOccurrences(of: "Every month.", with: "Billed monthly.")
+            .replacingOccurrences(of: "Every year.", with: "Billed yearly.")
+            .replacingOccurrences(of: "Hvert år.", with: "Årligt.")
             .replacingOccurrences(of: "Every alert, for good.", with: "Every alert, once."), to: "catalogue.json")
         fixture.fake.clearWrites()
         try await Commands.pushProducts(renamed.session, options: apply)
         #expect(renamed.console.output.contains("a revision for App Review; the approved text stays live until it is approved"))
-        #expect(fixture.fake.writes.sorted() == ["POST /v1/inAppPurchaseLocalizations", "POST /v1/subscriptionLocalizations"])
+        // The annual's first revision copies its other locale into a draft,
+        // which takes the second.
+        #expect(fixture.fake.writes.filter { !$0.hasPrefix("PATCH") }.sorted()
+                == ["POST /v1/inAppPurchaseLocalizations", "POST /v1/subscriptionLocalizations", "POST /v1/subscriptionLocalizations"])
+        #expect(fixture.fake.writes.filter { $0.hasPrefix("PATCH /v1/subscriptionLocalizations/") }.count == 1)
+        let annual = try #require(fixture.fake.all("subscriptions").last).id
+        #expect(fixture.fake.all("subscriptionLocalizations").filter { $0.relationships["subscription"]?.id == annual }
+            .map { "\($0.attributes["locale"]!) \($0.attributes["state"]!) \($0.attributes["description"]!)" }.sorted()
+                == ["da APPROVED Hvert år.", "da PREPARE_FOR_SUBMISSION Årligt.",
+                    "en-US APPROVED Every year.", "en-US PREPARE_FOR_SUBMISSION Billed yearly."])
         let monthly = fixture.fake.all("subscriptionLocalizations").filter { $0.attributes["locale"] as? String == "en-US" }
             .map { "\($0.attributes["state"]!) \($0.attributes["description"]!)" }
         #expect(monthly.contains("APPROVED Every month."))
